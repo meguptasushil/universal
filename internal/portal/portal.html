@@ -1,0 +1,274 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Universal Portal</title>
+<style>
+:root{--bg:#f5f6f8;--panel:#fff;--fg:#1b2130;--muted:#677085;--line:#e2e5eb;--accent:#2f6fed;--accent-fg:#fff;--ok:#1f8a5b;--warn:#b7791f;--err:#c93a3a;--soft:#eef3ff}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--panel:#171b23;--fg:#e6e9ef;--muted:#8d95a7;--line:#272d39;--accent:#6d9bff;--accent-fg:#0f1218;--ok:#4cc38a;--warn:#e0b25a;--err:#ff7272;--soft:#1c2433}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
+header h1{font-size:17px;margin:0}
+.wrap{max-width:1000px;margin:0 auto;padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
+.card h2{font-size:15px;margin:0 0 12px}
+.muted{color:var(--muted)}.small{font-size:12px}
+label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
+input[type=text],input[type=password],input[type=number]{width:100%;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
+input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+.grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
+@media (max-width:640px){.grid{grid-template-columns:1fr}}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:8px;padding:7px 12px}
+button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+button.danger{color:var(--err)}
+button:disabled{opacity:.5;cursor:default}
+.row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
+.spacer{flex:1}
+.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex-wrap:wrap}
+.seg button{border:0;border-radius:0;padding:8px 14px}
+.seg button.on{background:var(--soft);color:var(--accent);font-weight:600}
+.pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
+.s-online .dot{background:var(--ok)}.s-connecting .dot,.s-reconnecting .dot{background:var(--warn)}.s-error .dot{background:var(--err)}
+.preview{margin-top:8px;font-size:13px;padding:8px 10px;border-radius:8px;background:var(--soft);word-break:break-all}
+.app{border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:10px}
+.app h3{margin:0;font-size:15px}
+.url{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all}
+.url a{color:var(--accent);text-decoration:none}
+.err{color:var(--err);font-size:13px;margin-top:6px}
+.meta{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
+.empty{text-align:center;color:var(--muted);padding:24px}
+details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:12px}
+.check{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;display:none;max-width:calc(100% - 32px)}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg);padding:1px 5px;border-radius:4px}
+.hidden{display:none}
+</style>
+</head>
+<body>
+<header>
+  <h1>Universal Portal</h1>
+  <span class="muted small">Publish apps from this computer to the internet</span>
+  <span class="spacer"></span>
+  <span id="relay-pill" class="pill"><span class="dot"></span><span id="relay-text">No relay</span></span>
+  <button id="btn-settings">Relay settings</button>
+</header>
+<div class="wrap">
+
+  <section class="card hidden" id="settings">
+    <h2>Relay server</h2>
+    <p class="muted small" style="margin-top:0">
+      Apps are published through a relay: a small server with a public IP and a domain.
+      Set one up once with <code>universal relay --domain example.com --token SECRET</code>
+      (DNS: <code>example.com</code> and <code>*.example.com</code> → the server). Then enter it here.
+    </p>
+    <div class="grid">
+      <div><label for="s-server">Relay address</label><input id="s-server" type="text" placeholder="https://example.com"></div>
+      <div><label for="s-token">Token</label><input id="s-token" type="password" placeholder="relay token" autocomplete="off"></div>
+    </div>
+    <div class="row" style="margin-top:12px">
+      <button class="primary" id="s-save">Save</button>
+      <button id="s-test">Test connection</button>
+      <span id="s-result" class="small"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <h2 id="form-title">Publish an app</h2>
+    <div class="seg" id="kind">
+      <button data-kind="web" class="on">Web app / API</button>
+      <button data-kind="folder">Website folder</button>
+      <button data-kind="tcp">Database / TCP service</button>
+    </div>
+    <div class="grid">
+      <div><label for="f-target" id="l-target">Local port or address</label><input id="f-target" type="text" placeholder="3000  or  http://localhost:8080"></div>
+      <div><label for="f-name">Name</label><input id="f-name" type="text" placeholder="My app"></div>
+      <div class="web-only"><label for="f-sub">Public name</label><input id="f-sub" type="text" placeholder="myapp (random if empty)"></div>
+      <div class="tcp-only hidden"><label for="f-port">Public port (optional)</label><input id="f-port" type="number" min="1" max="65535" placeholder="any free port"></div>
+      <div class="tcp-only hidden"><label for="f-allow">Only allow these IPs (recommended)</label><input id="f-allow" type="text" placeholder="203.0.113.7, 10.0.0.0/8"></div>
+    </div>
+    <div class="preview" id="preview"></div>
+    <label class="check folder-only hidden"><input id="f-spa" type="checkbox"> Single-page app (send unknown paths to index.html)</label>
+    <details class="web-only">
+      <summary>Use my own domain</summary>
+      <label for="f-host">Custom hostname (CNAME it to the relay; the relay must allow custom domains)</label>
+      <input id="f-host" type="text" placeholder="www.mybusiness.com">
+    </details>
+    <div class="row" style="margin-top:14px">
+      <button class="primary" id="f-publish">Publish</button>
+      <button id="f-save">Save without starting</button>
+      <button id="f-cancel" class="hidden">Cancel</button>
+      <span class="err" id="f-error"></span>
+    </div>
+  </section>
+
+  <section class="card">
+    <div class="row"><h2 style="margin:0">Your apps</h2><span class="spacer"></span><span class="muted small" id="count"></span></div>
+    <div id="apps"></div>
+  </section>
+</div>
+<div id="toast"></div>
+<script>
+(function(){
+  var $ = function(id){ return document.getElementById(id); };
+  var token = '';
+  try { token = new URLSearchParams(location.search).get('token') || localStorage.getItem('portalToken') || ''; if (token) localStorage.setItem('portalToken', token); } catch (e) {}
+  var state = null, kind = 'web', editing = null;
+
+  function api(method, path, body){
+    var h = {'X-Portal': '1'};
+    if (body !== undefined) h['Content-Type'] = 'application/json';
+    if (token) h['Authorization'] = 'Bearer ' + token;
+    return fetch(path, {method: method, headers: h, body: body === undefined ? undefined : JSON.stringify(body)})
+      .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if (!r.ok) throw new Error(j.error || r.statusText); return j; }); });
+  }
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
+  function toast(msg){ var t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(function(){ t.style.display = 'none'; }, 2600); }
+  function ago(iso){
+    if (!iso || iso.indexOf('0001') === 0) return '';
+    var s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000));
+    if (s < 60) return s + 's'; if (s < 3600) return Math.floor(s/60) + 'm'; if (s < 86400) return Math.floor(s/3600) + 'h ' + Math.floor(s%3600/60) + 'm';
+    return Math.floor(s/86400) + 'd';
+  }
+
+  // ---- form
+  function setKind(k){
+    kind = k;
+    Array.prototype.forEach.call($('kind').children, function(b){ b.classList.toggle('on', b.dataset.kind === k); });
+    document.querySelectorAll('.web-only').forEach(function(el){ el.classList.toggle('hidden', k === 'tcp'); });
+    document.querySelectorAll('.tcp-only').forEach(function(el){ el.classList.toggle('hidden', k !== 'tcp'); });
+    document.querySelectorAll('.folder-only').forEach(function(el){ el.classList.toggle('hidden', k !== 'folder'); });
+    $('l-target').textContent = {web: 'Local port or address', folder: 'Folder on this computer', tcp: 'Local port of the service'}[k];
+    $('f-target').placeholder = {web: '3000  or  http://localhost:8080', folder: '/home/me/my-site  or  C:\\sites\\my-site', tcp: '5432 (PostgreSQL), 3306 (MySQL), 6379 (Redis), 22 (SSH)…'}[k];
+    preview();
+  }
+  Array.prototype.forEach.call($('kind').children, function(b){ b.onclick = function(){ setKind(b.dataset.kind); }; });
+  function preview(){
+    var d = state && state.settings.domain, p = $('preview');
+    if (!d) { p.innerHTML = 'Set up your <a href="#" id="go-settings">relay server</a> to get a public address.'; var g = $('go-settings'); if (g) g.onclick = function(e){ e.preventDefault(); showSettings(true); }; return; }
+    if (kind === 'tcp') {
+      p.textContent = 'Public address: ' + d + ':' + ($('f-port').value || '<assigned port>') + (($('f-allow').value.trim()) ? '  · only from ' + $('f-allow').value.trim() : '  · open to everyone. Add allowed IPs and keep the service password-protected.');
+    } else {
+      var scheme = 'https:', port = '';
+      try { var u = new URL(state.settings.server); scheme = u.protocol; port = u.port ? ':' + u.port : ''; } catch (e) {}
+      var host = $('f-host').value.trim() || (($('f-sub').value.trim() || '<random>') + '.' + d + port);
+      p.textContent = 'Public address: ' + scheme + '//' + host;
+    }
+  }
+  ['f-sub','f-host','f-port','f-allow'].forEach(function(id){ $(id).oninput = preview; });
+
+  function formApp(){
+    return {
+      name: $('f-name').value, target: $('f-target').value, tcp: kind === 'tcp',
+      subdomain: kind === 'tcp' ? '' : $('f-sub').value, hostname: kind === 'tcp' ? '' : $('f-host').value,
+      remote_port: kind === 'tcp' ? (parseInt($('f-port').value, 10) || 0) : 0,
+      allow: kind === 'tcp' ? $('f-allow').value : '', spa: kind === 'folder' && $('f-spa').checked
+    };
+  }
+  function resetForm(){
+    editing = null;
+    ['f-name','f-target','f-sub','f-host','f-port','f-allow'].forEach(function(id){ $(id).value = ''; });
+    $('f-spa').checked = false; $('f-error').textContent = '';
+    $('form-title').textContent = 'Publish an app'; $('f-publish').textContent = 'Publish';
+    $('f-save').classList.remove('hidden'); $('f-cancel').classList.add('hidden');
+    setKind('web');
+  }
+  function submit(start){
+    $('f-error').textContent = '';
+    var req = editing ? api('PUT', '/api/apps/' + editing, formApp()) : api('POST', '/api/apps' + (start ? '?start=1' : ''), formApp());
+    req.then(function(){ toast(editing ? 'Saved' : (start ? 'Publishing…' : 'Saved')); resetForm(); refresh(); })
+       .catch(function(e){ $('f-error').textContent = e.message; refresh(); });
+  }
+  $('f-publish').onclick = function(){ submit(true); };
+  $('f-save').onclick = function(){ submit(false); };
+  $('f-cancel').onclick = resetForm;
+
+  function edit(a){
+    editing = a.id;
+    setKind(a.kind || (a.tcp ? 'tcp' : 'web'));
+    $('f-name').value = a.name; $('f-target').value = a.target; $('f-sub').value = a.subdomain || ''; $('f-host').value = a.hostname || '';
+    $('f-port').value = a.remote_port || ''; $('f-allow').value = a.allow || ''; $('f-spa').checked = !!a.spa;
+    $('form-title').textContent = 'Edit ' + a.name; $('f-publish').textContent = 'Save changes';
+    $('f-save').classList.add('hidden'); $('f-cancel').classList.remove('hidden');
+    preview(); window.scrollTo({top: 0, behavior: 'smooth'});
+  }
+
+  // ---- settings
+  function showSettings(on){ $('settings').classList.toggle('hidden', !on); if (on) $('s-server').focus(); }
+  $('btn-settings').onclick = function(){ showSettings($('settings').classList.contains('hidden')); };
+  $('s-save').onclick = function(){
+    $('s-result').textContent = '';
+    api('PUT', '/api/settings', {server: $('s-server').value, token: $('s-token').value})
+      .then(function(){ $('s-token').value = ''; toast('Relay saved'); refresh(); testRelay(); })
+      .catch(function(e){ $('s-result').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
+  };
+  function testRelay(){
+    $('s-result').textContent = 'Testing…';
+    api('POST', '/api/settings/test').then(function(r){
+      $('s-result').innerHTML = r.ok ? '<span style="color:var(--ok)">✓ Connected, token accepted</span>' : '<span class="err">' + esc(r.error) + '</span>';
+    });
+  }
+  $('s-test').onclick = testRelay;
+
+  // ---- apps list
+  function statusLabel(a){ return {online: 'Online', connecting: 'Connecting…', reconnecting: 'Reconnecting…', error: 'Error', stopped: 'Offline'}[a.status] || a.status; }
+  function render(){
+    var s = state.settings;
+    $('relay-pill').className = 'pill ' + (s.server ? 's-online' : '');
+    $('relay-text').textContent = s.server ? s.domain : 'No relay configured';
+    if (document.activeElement !== $('s-server')) $('s-server').value = s.server || '';
+    $('s-token').placeholder = s.token_set ? 'saved (leave empty to keep)' : 'relay token';
+    if (!s.server && !$('settings')._shown) { showSettings(true); $('settings')._shown = true; }
+    preview();
+
+    var list = $('apps'), apps = state.apps || [];
+    $('count').textContent = apps.length ? apps.filter(function(a){ return a.status === 'online'; }).length + ' of ' + apps.length + ' online' : '';
+    if (!apps.length) { list.innerHTML = '<div class="empty">Nothing published yet. Add an app above.</div>'; return; }
+    list.textContent = '';
+    apps.forEach(function(a){
+      var running = a.status !== 'stopped' && a.status !== 'error';
+      var el = document.createElement('div'); el.className = 'app';
+      var url = a.public_url ? (a.kind === 'tcp' ? esc(a.public_url.replace('tcp://', '')) : '<a href="' + esc(a.public_url) + '" target="_blank" rel="noopener">' + esc(a.public_url) + '</a>') : '';
+      var local = a.kind === 'folder' ? 'folder ' + esc(a.target) : esc(a.local_addr || a.target) + (a.local_up ? ' · running' : ' · <span style="color:var(--warn)">nothing listening</span>');
+      el.innerHTML =
+        '<div class="row"><h3>' + esc(a.name) + '</h3><span class="pill">' + ({web: 'Web', folder: 'Folder', tcp: 'TCP'}[a.kind] || a.kind) + '</span>' +
+        '<span class="pill s-' + esc(a.status) + '"><span class="dot"></span>' + statusLabel(a) + '</span><span class="spacer"></span>' +
+        '<button data-act="' + (running ? 'stop' : 'start') + '"' + (running ? '' : ' class="primary"') + '>' + (running ? 'Stop' : 'Start') + '</button>' +
+        '<button data-act="edit">Edit</button><button data-act="delete" class="danger">Delete</button></div>' +
+        (url ? '<div class="row" style="margin-top:8px"><span class="url">' + url + '</span><button data-act="copy" class="small">Copy</button></div>' : '') +
+        (a.error && a.status !== 'online' ? '<div class="err">' + esc(a.error) + '</div>' : '') +
+        '<div class="meta"><span>Local: ' + local + '</span>' +
+        (a.status === 'online' ? '<span>Online for ' + ago(a.online_since) + '</span>' : '') +
+        '<span>' + a.connections + ' connection' + (a.connections === 1 ? '' : 's') + '</span>' +
+        (a.allow ? '<span>Allowed: ' + esc(a.allow) + '</span>' : (a.kind === 'tcp' ? '<span style="color:var(--warn)">Open to everyone</span>' : '')) + '</div>';
+      el.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ act(b.dataset.act, a); }; });
+      list.appendChild(el);
+    });
+  }
+  function act(what, a){
+    if (what === 'edit') return edit(a);
+    if (what === 'copy') {
+      var text = a.kind === 'tcp' ? a.public_url.replace('tcp://', '') : a.public_url;
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function(){ toast('Copied ' + text); }, function(){ prompt('Copy this address', text); });
+      return;
+    }
+    if (what === 'delete' && !confirm('Delete "' + a.name + '"? It will go offline.')) return;
+    var req = what === 'delete' ? api('DELETE', '/api/apps/' + a.id) : api('POST', '/api/apps/' + a.id + '/' + what);
+    req.then(refresh).catch(function(e){ toast(e.message); refresh(); });
+  }
+
+  function refresh(){
+    return api('GET', '/api/state').then(function(s){ state = s; render(); }).catch(function(e){
+      if (/unauthorized/i.test(e.message)) { var t = prompt('Portal token'); if (t) { token = t; try { localStorage.setItem('portalToken', t); } catch (x) {} } }
+      else toast('Portal not reachable: ' + e.message);
+    });
+  }
+  setKind('web');
+  refresh();
+  setInterval(refresh, 2000);
+})();
+</script>
+</body>
+</html>

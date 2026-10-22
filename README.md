@@ -16,7 +16,7 @@ The full design is in [docs/PLAN.md](docs/PLAN.md).
 
 ```sh
 go install github.com/meguptasushil/universal/cmd/universal@latest
-# or, from a checkout
+# or, from a checkout (needs Go 1.22+)
 make build            # → ./universal
 make release          # cross-compile into dist/ for linux, macOS and windows
 ```
@@ -167,6 +167,29 @@ protocol's own TLS.
 > the database's own password or TLS on, and restrict visitors with `--allow`. The client
 > enforces the allow-list on *your* machine, so the relay operator can't loosen it.
 
+### Prefer a UI? The portal
+
+```sh
+universal portal --open          # http://127.0.0.1:7070
+```
+
+The portal is a local web page for the same job:
+1. Enter your relay address and token once. **Test connection** checks both.
+2. Choose **Web app / API**, **Website folder** or **Database / TCP service**.
+3. Enter the port or folder and a public name. The page previews the public address
+   before you publish.
+4. Press **Publish**.
+
+Each app shows whether it's online, its public URL (with a copy button), whether
+anything is listening locally, how many connections it has had, and any error. You can
+start, stop, edit or delete an app at any time. Apps and settings are saved in
+`~/.universal/portal.json`, and apps that were online come back online when the portal
+restarts.
+
+The portal can open ports on your machine to the internet, so it only answers on
+`localhost`, and it rejects requests that other websites send through your browser. To
+open it from another machine, start it with `--listen 0.0.0.0:7070 --token SECRET`.
+
 Custom domains: start the relay with `--allow-custom-domains`, CNAME `www.customer.com` to
 the relay, then run `universal expose 3000 --hostname www.customer.com`.
 
@@ -195,6 +218,7 @@ make test     # go vet + go test -race ./...
 cmd/universal/       CLI (monitor, relay, expose, serve)
 internal/monitor/    LLM gateway, provider parsers, event store, API, dashboard, hook adapter
 internal/hosting/    tunnel protocol, relay, client, TCP tunnels, static/proxy serving, autocert
+internal/portal/     web UI + API for publishing apps without the CLI
 deploy/              Dockerfile assets, systemd units, install script, Claude Code hooks
 docs/PLAN.md         architecture and roadmap
 ```

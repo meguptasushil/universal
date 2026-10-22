@@ -231,6 +231,23 @@ universal serve  (--dir ./public | --proxy http://localhost:3000)
 
 `UNIVERSAL_SERVER` and `UNIVERSAL_TOKEN` env vars shorten `expose` to `universal expose 3000`.
 
+### 2.5.1 Portal: publish from a UI (`universal portal`)
+
+A local web app for people who'd rather not use the command line. It runs on the
+machine whose apps are being published and uses the same tunnel client in-process.
+
+| Piece | Responsibility |
+|-------|----------------|
+| `internal/portal/manager.go` | Saved config (`~/.universal/portal.json`, mode 0600 because it holds the relay token): relay settings plus a list of apps (web port/URL, folder, or TCP service with public port and IP allow-list). Validates input, runs one `hosting.Client` per app, tracks live status (connecting, online, reconnecting, error), public URL, connection count and whether the local service is listening. Apps marked online are restored on the next start |
+| `internal/portal/server.go` | JSON API (`/api/state`, `/api/settings`, `/api/settings/test`, `/api/apps` CRUD, `/start`, `/stop`) |
+| `internal/portal/portal.html` | Embedded UI: relay settings with connection test, a publish form with a live public-address preview, and app cards with start/stop/edit/delete/copy. Polls every 2 s |
+
+**Security**: the API can expose local ports, so by default it answers only on loopback
+host names, which blocks DNS rebinding. Every API call must carry an `X-Portal` header,
+which another site cannot add without a CORS preflight that is never granted, so
+cross-site requests fail. The relay token is never sent back to the browser. Listening
+beyond localhost requires `--token`.
+
 ### 2.6 Customer setup (one time, about 5 minutes)
 
 1. Get a VM with a public IP (any cloud provider, for example a $5 VPS).
@@ -238,7 +255,8 @@ universal serve  (--dir ./public | --proxy http://localhost:3000)
    (plus the TCP range if you want database/SSH tunnels).
 3. On the VM: `curl -fsSL .../deploy/install.sh | sh -s -- relay example.com` (installs the
    binary and a systemd unit), or `docker run` with the provided Dockerfile.
-4. On any machine: `universal expose 3000 --server https://example.com --token ...`.
+4. On any machine: `universal expose 3000 --server https://example.com --token ...`, or
+   `universal portal` and do it from the browser.
 
 ---
 
@@ -270,6 +288,7 @@ universal serve  (--dir ./public | --proxy http://localhost:3000)
 | M2b | Identity tracking (agent ID, user, API key fingerprint, session), multi-ID alerts, `universal report` CLI | in this change |
 | M3 | Hosting: relay, expose client, direct serve, autocert, tests | in this change |
 | M3b | TCP tunnels for databases/SSH/any TCP service, with an IP allow-list | in this change |
+| M3c | Portal UI to publish and manage apps without the CLI | in this change |
 | M4 | Deploy assets (Dockerfile, systemd, install script), README | in this change |
 | M5 (v2) | Browser extension for web chat apps, process/OS-level agent watcher (exec and file events through eBPF/ETW), alert rules (for example "agent ran `rm -rf`"), SQLite backend, multi-user auth | future |
 | M6 (v2) | Wildcard certs through DNS-01, UDP tunnels, per-tunnel basic auth and IP allow-lists for HTTP, usage dashboard for the relay | future |

@@ -28,6 +28,12 @@ type Client struct {
 	Log   *slog.Logger
 	// OnReady is called with the public URL every time the tunnel (re)connects.
 	OnReady func(publicURL string)
+	// OnDown is called when the tunnel drops or a connection attempt fails,
+	// before the next retry.
+	OnDown func(err error)
+	// OnConn is called for every stream forwarded to the local service, with
+	// the visitor address for TCP tunnels.
+	OnConn func(visitor string)
 }
 
 // ParseAllowList parses comma-separated IPs and CIDRs ("203.0.113.7,10.0.0.0/8").
@@ -85,6 +91,9 @@ func (c *Client) Run(ctx context.Context) error {
 			backoff = time.Second
 		}
 		c.Log.Warn("tunnel down, reconnecting", "err", err, "in", backoff)
+		if c.OnDown != nil {
+			c.OnDown(err)
+		}
 		select {
 		case <-ctx.Done():
 			return nil
@@ -186,6 +195,9 @@ func (c *Client) handleStream(ctx context.Context, id, visitor string) {
 		_, _ = io.WriteString(remote, fmt.Sprintf("HTTP/1.1 502 Bad Gateway\r\nContent-Type: text/plain; charset=utf-8\r\nContent-Length: %d\r\nConnection: close\r\n\r\n%s", len(msg), msg))
 		remote.Close()
 		return
+	}
+	if c.OnConn != nil {
+		c.OnConn(visitor)
 	}
 	splice(remote, local)
 }

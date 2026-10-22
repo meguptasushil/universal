@@ -18,8 +18,10 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"syscall"
@@ -27,6 +29,7 @@ import (
 
 	"github.com/meguptasushil/universal/internal/hosting"
 	"github.com/meguptasushil/universal/internal/monitor"
+	"github.com/meguptasushil/universal/internal/portal"
 )
 
 var version = "dev"
@@ -40,6 +43,7 @@ Usage:
   universal expose  <port|host:port|dir>    publish a local website/API or folder via a relay
   universal expose  5432 --tcp              publish any TCP service (database, SSH, Redis...)
   universal serve   <dir|port|url>          host directly with automatic HTTPS (public IP needed)
+  universal portal                          web UI to publish local apps without the command line
   universal version
 
 Run "universal <command> -h" for the flags of a command.
@@ -67,6 +71,8 @@ func main() {
 		err = runExpose(ctx, log, args)
 	case "serve":
 		err = runServe(ctx, log, args)
+	case "portal":
+		err = runPortal(ctx, log, args)
 	case "version", "--version", "-v":
 		fmt.Println("universal", version)
 	case "help", "-h", "--help":
@@ -376,36 +382,6 @@ func parsePortRange(s string) (int, int, error) {
 
 // ---------------------------------------------------------------- expose
 
-// localTarget turns "3000", "localhost:3000" or "http://host:3000" into host:port.
-func localTarget(s string) (string, error) {
-	if _, err := strconv.Atoi(s); err == nil {
-		return "127.0.0.1:" + s, nil
-	}
-	if strings.Contains(s, "://") {
-		u, err := url.Parse(s)
-		if err != nil {
-			return "", err
-		}
-		if u.Scheme == "tcp" {
-			if u.Port() == "" {
-				return "", fmt.Errorf("%s: a port is required", s)
-			}
-			return u.Host, nil
-		}
-		if u.Scheme != "http" {
-			return "", fmt.Errorf("only http:// targets can be exposed (got %s)", u.Scheme)
-		}
-		if u.Port() == "" {
-			return net.JoinHostPort(u.Hostname(), "80"), nil
-		}
-		return u.Host, nil
-	}
-	if _, _, err := net.SplitHostPort(s); err == nil {
-		return s, nil
-	}
-	return "", fmt.Errorf("cannot understand target %q (use a port, host:port, http://url, tcp://host:port or a directory)", s)
-}
-
 func runExpose(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("expose", flag.ContinueOnError)
 	server := fs.String("server", env("UNIVERSAL_SERVER", ""), "relay URL, e.g. https://example.com")
@@ -464,7 +440,7 @@ func runExpose(ctx context.Context, log *slog.Logger, args []string) error {
 		local = ln.Addr().String()
 		abs, _ := filepath.Abs(target)
 		log.Info("serving folder", "dir", abs, "local", local)
-	} else if local, err = localTarget(target); err != nil {
+	} else if local, err = hosting.LocalTarget(target); err != nil {
 		return err
 	}
 
@@ -486,6 +462,65 @@ func runExpose(ctx context.Context, log *slog.Logger, args []string) error {
 		},
 	}
 	return c.Run(ctx)
+}
+
+// ---------------------------------------------------------------- portal
+
+func runPortal(ctx context.Context, log *slog.Logger, args []string) error {
+	fs := flag.NewFlagSet("portal", flag.ContinueOnError)
+	listen := fs.String("listen", env("UNIVERSAL_PORTAL_LISTEN", "127.0.0.1:7070"), "address for the portal UI")
+	config := fs.String("config", env("UNIVERSAL_PORTAL_CONFIG", portal.DefaultConfigPath()), "where apps and relay settings are saved")
+	token := fs.String("token", env("UNIVERSAL_PORTAL_TOKEN", ""), "require this token in the UI (needed to open the portal from other machines)")
+	server := fs.String("server", env("UNIVERSAL_SERVER", ""), "relay URL to use if none is saved yet")
+	relayToken := fs.String("relay-token", env("UNIVERSAL_TOKEN", ""), "relay token to use if none is saved yet")
+	open := fs.Bool("open", false, "open the portal in the default browser")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	host, _, err := net.SplitHostPort(*listen)
+	if err != nil {
+		return fmt.Errorf("invalid --listen: %w", err)
+	}
+	if ip := net.ParseIP(host); (ip == nil || !ip.IsLoopback()) && host != "localhost" && *token == "" {
+		return errors.New("the portal can publish ports on this machine; set --token to listen beyond localhost")
+	}
+	m, err := portal.Open(*config, log)
+	if err != nil {
+		return err
+	}
+	if st := m.State(); st.Settings.Server == "" && *server != "" {
+		if err := m.UpdateSettings(*server, *relayToken, false); err != nil {
+			return err
+		}
+	}
+	m.StartEnabled()
+	defer m.Shutdown()
+
+	u := "http://" + *listen + "/"
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		u = "http://127.0.0.1:" + strings.TrimPrefix(*listen, host+":") + "/"
+	}
+	if *token != "" {
+		u += "?token=" + url.QueryEscape(*token)
+	}
+	fmt.Fprintf(os.Stderr, "\n  Universal Portal:  %s\n  Apps are saved in %s\n\n", u, *config)
+	if *open {
+		openBrowser(u)
+	}
+	return hosting.ServePlain(ctx, (&portal.Server{M: m, Token: *token}).Handler(), *listen)
+}
+
+func openBrowser(u string) {
+	var cmd *exec.Cmd
+	switch runtime.GOOS {
+	case "darwin":
+		cmd = exec.Command("open", u)
+	case "windows":
+		cmd = exec.Command("rundll32", "url.dll,FileProtocolHandler", u)
+	default:
+		cmd = exec.Command("xdg-open", u)
+	}
+	_ = cmd.Start()
 }
 
 // ---------------------------------------------------------------- serve
@@ -512,7 +547,7 @@ func runServe(ctx context.Context, log *slog.Logger, args []string) error {
 	if pos != "" && *dir == "" && *proxy == "" {
 		if st, err := os.Stat(pos); err == nil && st.IsDir() {
 			*dir = pos
-		} else if t, err := localTarget(pos); err == nil {
+		} else if t, err := hosting.LocalTarget(pos); err == nil {
 			*proxy = "http://" + t
 		} else {
 			return err
