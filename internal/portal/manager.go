@@ -14,6 +14,7 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -29,11 +30,12 @@ type Settings struct {
 	Token  string `json:"token"`
 }
 
-// App is one thing to publish: a local port, URL, folder or TCP service.
+// App is one thing to publish: a local port, URL, folder, project or TCP service.
 type App struct {
 	ID         string `json:"id"`
 	Name       string `json:"name"`
-	Target     string `json:"target"` // "3000", "localhost:8080", "http://...", "tcp://host:5432" or a folder path
+	Target     string `json:"target"`            // "3000", "localhost:8080", "http://...", "tcp://host:5432" or a folder path
+	Command    string `json:"command,omitempty"` // for project folders: how to start it ($PORT = assigned port)
 	TCP        bool   `json:"tcp"`
 	Subdomain  string `json:"subdomain,omitempty"`
 	Hostname   string `json:"hostname,omitempty"`
@@ -61,10 +63,12 @@ const (
 // AppState is an App plus its live status.
 type AppState struct {
 	App
-	Kind        string    `json:"kind"` // web, folder, tcp
+	Kind        string    `json:"kind"` // web, folder, project, tcp
 	Status      string    `json:"status"`
 	PublicURL   string    `json:"public_url,omitempty"`
-	Error       string    `json:"error,omitempty"`
+	Error       string    `json:"error,omitempty"`  // plain-language problem
+	Hint        string    `json:"hint,omitempty"`   // what to do about it
+	Detail      string    `json:"detail,omitempty"` // the technical error`
 	OnlineSince time.Time `json:"online_since,omitempty"`
 	Connections int64     `json:"connections"`
 	LocalAddr   string    `json:"local_addr,omitempty"`
@@ -72,10 +76,21 @@ type AppState struct {
 }
 
 type runner struct {
-	cancel context.CancelFunc
-	done   chan struct{}
-	state  AppState
+	cancel     context.CancelFunc
+	done       chan struct{}
+	state      AppState
+	stopping   bool // Stop was requested: a project exiting now is expected
+	procFailed bool // the project process died on its own
 }
+
+// setError records err on s in plain language. Caller holds mu.
+func setError(s *AppState, status string, err error) {
+	s.Status = status
+	s.Error, s.Hint = friendly(err)
+	s.Detail = err.Error()
+}
+
+func clearError(s *AppState) { s.Error, s.Hint, s.Detail = "", "", "" }
 
 // Manager owns the configuration and the running tunnels.
 type Manager struct {
@@ -85,6 +100,7 @@ type Manager struct {
 	mu   sync.Mutex
 	cfg  Config
 	runs map[string]*runner
+	logs map[string]*logBuffer // project output, kept after a project stops
 }
 
 // DefaultConfigPath is ~/.universal/portal.json.
@@ -101,7 +117,7 @@ func Open(path string, log *slog.Logger) (*Manager, error) {
 	if log == nil {
 		log = slog.Default()
 	}
-	m := &Manager{path: path, log: log, runs: map[string]*runner{}}
+	m := &Manager{path: path, log: log, runs: map[string]*runner{}, logs: map[string]*logBuffer{}}
 	b, err := os.ReadFile(path)
 	switch {
 	case err == nil:
@@ -143,7 +159,13 @@ func resolve(a *App) (kind, addr string, err error) {
 		if a.TCP {
 			return "", "", errors.New("a folder can only be published as a website, not as a TCP service")
 		}
+		if strings.TrimSpace(a.Command) != "" {
+			return "project", t, nil
+		}
 		return "folder", t, nil
+	}
+	if strings.TrimSpace(a.Command) != "" {
+		return "", "", fmt.Errorf("the folder %q doesn't exist on this computer", t)
 	}
 	addr, err = hosting.LocalTarget(t)
 	if err != nil {
@@ -157,6 +179,7 @@ func resolve(a *App) (kind, addr string, err error) {
 
 func validate(a *App) error {
 	a.Target = strings.TrimSpace(a.Target)
+	a.Command = strings.TrimSpace(a.Command)
 	a.Subdomain = strings.ToLower(strings.TrimSpace(a.Subdomain))
 	a.Hostname = strings.ToLower(strings.TrimSpace(a.Hostname))
 	kind, _, err := resolve(a)
@@ -228,7 +251,7 @@ func (m *Manager) State() State {
 		}
 		if kind, addr, err := resolve(&a); err == nil {
 			s.Kind = kind
-			if kind != "folder" {
+			if kind == "web" || kind == "tcp" {
 				s.LocalAddr = addr
 			}
 		}
@@ -307,6 +330,35 @@ func parseServer(s string) (*url.URL, error) {
 		return nil, fmt.Errorf("relay address must look like https://example.com (got %q)", s)
 	}
 	return u, nil
+}
+
+// Settings returns the saved relay settings.
+func (m *Manager) Settings() Settings {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return m.cfg.Settings
+}
+
+// Connect saves the relay from a connection code.
+func (m *Manager) Connect(code string) error {
+	server, token, err := hosting.DecodeConnectCode(code)
+	if err != nil {
+		return err
+	}
+	return m.UpdateSettings(server, token, true)
+}
+
+// Logs returns the latest output of a project app.
+func (m *Manager) Logs(id string) ([]string, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.find(id) < 0 {
+		return nil, ErrNotFound
+	}
+	if l := m.logs[id]; l != nil {
+		return l.Lines(), nil
+	}
+	return []string{}, nil
 }
 
 // TestRelay checks that the configured relay is reachable and accepts the token.
@@ -409,7 +461,11 @@ func (m *Manager) Start(id string) error {
 	}
 
 	var ln net.Listener
-	if kind == "folder" {
+	var proc *exec.Cmd
+	var procExited chan struct{}
+	logs := m.logs[id]
+	switch kind {
+	case "folder":
 		h, err := hosting.StaticHandler(addr, a.SPA)
 		if err != nil {
 			return err
@@ -419,10 +475,38 @@ func (m *Manager) Start(id string) error {
 		}
 		go func() { _ = http.Serve(ln, h) }()
 		addr = ln.Addr().String()
+	case "project":
+		dir, err := filepath.Abs(addr)
+		if err != nil {
+			return err
+		}
+		port, err := freePort()
+		if err != nil {
+			return err
+		}
+		command := strings.ReplaceAll(a.Command, "$PORT", port)
+		if logs == nil {
+			logs = &logBuffer{}
+			m.logs[id] = logs
+		}
+		logs.Note("starting in " + dir + ": " + command)
+		proc = shellCommand(command)
+		proc.Dir = dir
+		proc.Env = append(os.Environ(), "PORT="+port)
+		proc.Stdout, proc.Stderr = logs, logs
+		if err := proc.Start(); err != nil {
+			logs.Note("could not start: " + err.Error())
+			return err
+		}
+		procExited = make(chan struct{})
+		addr = "127.0.0.1:" + port
 	}
 
 	ctx, cancel := context.WithCancel(context.Background())
 	r := &runner{cancel: cancel, done: make(chan struct{}), state: AppState{App: a, Kind: kind, Status: StatusConnecting}}
+	if kind == "project" {
+		r.state.LocalAddr = addr
+	}
 	m.runs[id] = r
 	m.cfg.Apps[i].Enabled = true
 	saveErr := m.save()
@@ -437,13 +521,37 @@ func (m *Manager) Start(id string) error {
 		TCP: a.TCP, RemotePort: a.RemotePort, Allow: allow, Log: m.log.With("app", a.Name),
 		OnReady: func(u string) {
 			update(func(s *AppState) {
-				s.Status, s.PublicURL, s.Error, s.OnlineSince = StatusOnline, u, "", time.Now().UTC()
+				s.Status, s.PublicURL, s.OnlineSince = StatusOnline, u, time.Now().UTC()
+				clearError(s)
 			})
 		},
 		OnDown: func(err error) {
-			update(func(s *AppState) { s.Status, s.Error = StatusReconnecting, err.Error() })
+			update(func(s *AppState) { setError(s, StatusReconnecting, err) })
 		},
 		OnConn: func(string) { update(func(s *AppState) { s.Connections++ }) },
+	}
+	if proc != nil {
+		go func() {
+			err := proc.Wait()
+			close(procExited)
+			m.mu.Lock()
+			expected := r.stopping
+			if !expected {
+				r.procFailed = true
+				r.state.Status = StatusError
+				r.state.Error = "Your project stopped running."
+				r.state.Hint = "Open Logs to see what went wrong, fix it, then press Start."
+				r.state.Detail = fmt.Sprint(err)
+				if code := exitCode(err); code == 127 || code == 9009 {
+					r.state.Error, r.state.Hint = friendly(errors.New("command not found"))
+				}
+			}
+			m.mu.Unlock()
+			logs.Note(fmt.Sprintf("project exited (%v)", err))
+			if !expected {
+				r.cancel() // take the public address offline too
+			}
+		}()
 	}
 	go func() {
 		defer close(r.done)
@@ -451,14 +559,22 @@ func (m *Manager) Start(id string) error {
 		if ln != nil {
 			ln.Close()
 		}
+		if proc != nil {
+			m.mu.Lock()
+			r.stopping = true
+			m.mu.Unlock()
+			killTree(proc, procExited)
+		}
 		m.mu.Lock()
 		defer m.mu.Unlock()
-		if err != nil {
-			r.state.Status, r.state.Error = StatusError, err.Error()
+		switch {
+		case r.procFailed: // keep the project's error
+		case err != nil:
+			setError(&r.state, StatusError, err)
 			// keep the failed runner visible until Stop or the next Start
-			return
+		default:
+			r.state.Status = StatusStopped
 		}
-		r.state.Status = StatusStopped
 	}()
 	m.log.Info("publishing", "app", a.Name, "target", a.Target)
 	return saveErr
@@ -469,6 +585,9 @@ func (m *Manager) Stop(id string) {
 	m.mu.Lock()
 	r := m.runs[id]
 	delete(m.runs, id)
+	if r != nil {
+		r.stopping = true
+	}
 	if i := m.find(id); i >= 0 && r != nil {
 		m.cfg.Apps[i].Enabled = false
 		_ = m.save()
@@ -502,6 +621,9 @@ func (m *Manager) Shutdown() {
 	m.mu.Lock()
 	runs := m.runs
 	m.runs = map[string]*runner{}
+	for _, r := range runs {
+		r.stopping = true
+	}
 	m.mu.Unlock()
 	ids := make([]string, 0, len(runs))
 	for id := range runs {
@@ -512,4 +634,22 @@ func (m *Manager) Shutdown() {
 		runs[id].cancel()
 		<-runs[id].done
 	}
+}
+
+func freePort() (string, error) {
+	l, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return "", err
+	}
+	defer l.Close()
+	_, port, _ := net.SplitHostPort(l.Addr().String())
+	return port, nil
+}
+
+func exitCode(err error) int {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) {
+		return ee.ExitCode()
+	}
+	return 0
 }

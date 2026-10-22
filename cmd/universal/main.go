@@ -27,6 +27,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/meguptasushil/universal/internal/autostart"
 	"github.com/meguptasushil/universal/internal/hosting"
 	"github.com/meguptasushil/universal/internal/monitor"
 	"github.com/meguptasushil/universal/internal/portal"
@@ -43,23 +44,24 @@ Usage:
   universal expose  <port|host:port|dir>    publish a local website/API or folder via a relay
   universal expose  5432 --tcp              publish any TCP service (database, SSH, Redis...)
   universal serve   <dir|port|url>          host directly with automatic HTTPS (public IP needed)
-  universal portal                          web UI to publish local apps without the command line
+  universal portal                          web UI to publish local apps (also: run universal with no arguments)
+  universal login   <connection code>       save the relay connection for portal and expose
   universal version
 
 Run "universal <command> -h" for the flags of a command.
 `
 
 func main() {
-	if len(os.Args) < 2 {
-		fmt.Fprint(os.Stderr, usage)
-		os.Exit(2)
-	}
 	log := slog.New(slog.NewTextHandler(os.Stderr, nil))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
+	// No arguments (for example, double-clicked): open the portal.
+	cmd, args := "portal", []string{"--open"}
+	if len(os.Args) >= 2 {
+		cmd, args = os.Args[1], os.Args[2:]
+	}
 	var err error
-	cmd, args := os.Args[1], os.Args[2:]
 	switch cmd {
 	case "monitor":
 		err = runMonitor(ctx, log, args)
@@ -73,6 +75,8 @@ func main() {
 		err = runServe(ctx, log, args)
 	case "portal":
 		err = runPortal(ctx, log, args)
+	case "login":
+		err = runLogin(ctx, args)
 	case "version", "--version", "-v":
 		fmt.Println("universal", version)
 	case "help", "-h", "--help":
@@ -316,11 +320,12 @@ func fetchReport(ctx context.Context, server, token string, f monitor.Filter, re
 
 func runRelay(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("relay", flag.ContinueOnError)
-	domain := fs.String("domain", env("UNIVERSAL_DOMAIN", ""), "apex domain; point example.com and *.example.com at this machine")
-	tokens := fs.String("token", env("UNIVERSAL_TOKENS", ""), "comma-separated tokens clients must present")
+	domain := fs.String("domain", env("UNIVERSAL_DOMAIN", ""), "apex domain; point example.com and *.example.com at this machine (default: a free <ip>.sslip.io name, no DNS setup needed)")
+	tokens := fs.String("token", env("UNIVERSAL_TOKENS", ""), "comma-separated tokens clients must present (default: generate one and keep it in the state directory)")
+	state := fs.String("state", env("UNIVERSAL_STATE", "./universal-relay"), "directory for the relay's token and certificates")
 	noAuth := fs.Bool("no-auth", false, "allow clients without a token (testing only)")
 	email := fs.String("email", env("UNIVERSAL_EMAIL", ""), "contact email for Let's Encrypt")
-	certs := fs.String("certs", env("UNIVERSAL_CERTS", "./certs"), "certificate cache directory")
+	certs := fs.String("certs", env("UNIVERSAL_CERTS", ""), "certificate cache directory (default: <state>/certs)")
 	httpsAddr := fs.String("https", ":443", "HTTPS listen address")
 	httpAddr := fs.String("http", ":80", "HTTP listen address (ACME challenges and redirect)")
 	insecure := fs.String("insecure-http", "", "serve plain HTTP only on this address, without TLS (local testing, or behind another TLS proxy)")
@@ -328,6 +333,7 @@ func runRelay(ctx context.Context, log *slog.Logger, args []string) error {
 	custom := fs.Bool("allow-custom-domains", false, "let clients use their own hostnames (they CNAME them to this relay)")
 	tcpPorts := fs.String("tcp-ports", env("UNIVERSAL_TCP_PORTS", ""), "public port range for raw TCP tunnels, e.g. 20000-20100 (open it in the firewall)")
 	tcpBind := fs.String("tcp-bind", "", "interface to bind TCP tunnel ports on (default all)")
+	showCode := fs.Bool("show-code", false, "print the connection code for this relay and exit")
 	if _, err := parse(fs, args); err != nil {
 		return err
 	}
@@ -336,11 +342,26 @@ func runRelay(ctx context.Context, log *slog.Logger, args []string) error {
 		return err
 	}
 	if *domain == "" {
-		return errors.New("--domain is required (e.g. --domain example.com)")
+		ip, err := hosting.DetectPublicIP(ctx)
+		if err != nil {
+			return err
+		}
+		*domain = hosting.IPDomain(ip)
+		log.Info("no --domain given; using a free wildcard DNS name for this server's IP", "domain", *domain)
 	}
 	toks := splitList(*tokens)
 	if len(toks) == 0 && !*noAuth {
-		return errors.New("--token is required (or --no-auth for testing)")
+		tok, created, err := hosting.LoadOrCreateToken(filepath.Join(*state, "relay-token"))
+		if err != nil {
+			return err
+		}
+		if created {
+			log.Info("generated a relay token", "file", filepath.Join(*state, "relay-token"))
+		}
+		toks = []string{tok}
+	}
+	if *certs == "" {
+		*certs = filepath.Join(*state, "certs")
 	}
 	r := &hosting.Relay{Domain: *domain, Tokens: toks, AllowCustomDomains: *custom, PublicPort: *publicPort,
 		TCPPortMin: minPort, TCPPortMax: maxPort, TCPBind: *tcpBind, Log: log}
@@ -355,12 +376,59 @@ func runRelay(ctx context.Context, log *slog.Logger, args []string) error {
 				r.PublicPort = p
 			}
 		}
+	} else if r.PublicPort == "" {
+		if _, p, err := net.SplitHostPort(*httpsAddr); err == nil && p != "443" {
+			r.PublicPort = p
+		}
+	}
+	if *showCode {
+		if len(toks) == 0 {
+			return errors.New("this relay has no token (--no-auth), so there is no connection code")
+		}
+		fmt.Println(hosting.EncodeConnectCode(relayURL(r), toks[0]))
+		return nil
+	}
+	printRelayBanner(r, toks, minPort, maxPort)
+	if *insecure != "" {
 		log.Info("relay running without TLS", "addr", *insecure, "domain", *domain)
 		return hosting.ServePlain(ctx, h, *insecure)
 	}
 	return hosting.ServeAutoTLS(ctx, h, hosting.TLSOptions{
 		CacheDir: *certs, Email: *email, HTTPAddr: *httpAddr, HTTPSAddr: *httpsAddr, Policy: r.HostPolicy,
 	}, log)
+}
+
+// printRelayBanner tells the operator exactly what to hand to users.
+func relayURL(r *hosting.Relay) string {
+	scheme := r.PublicScheme
+	if scheme == "" {
+		scheme = "https"
+	}
+	host := r.Domain
+	if r.PublicPort != "" {
+		host = net.JoinHostPort(host, r.PublicPort)
+	}
+	return scheme + "://" + host
+}
+
+func printRelayBanner(r *hosting.Relay, tokens []string, minPort, maxPort int) {
+	server := relayURL(r)
+	fmt.Fprintf(os.Stderr, "\n  Relay is running at %s\n", server)
+	if strings.HasSuffix(r.Domain, ".sslip.io") {
+		fmt.Fprintln(os.Stderr, "  (free sslip.io address, no DNS setup needed; use --domain with your own domain for production)")
+	} else {
+		fmt.Fprintf(os.Stderr, "  DNS must point %s and *.%s at this server.\n", r.Domain, r.Domain)
+	}
+	fmt.Fprintf(os.Stderr, "  Firewall: open ports 80 and 443")
+	if minPort > 0 {
+		fmt.Fprintf(os.Stderr, ", and %d-%d for databases/TCP", minPort, maxPort)
+	}
+	fmt.Fprintln(os.Stderr, ".")
+	if len(tokens) > 0 {
+		fmt.Fprintf(os.Stderr, "\n  Connection code (give it to anyone who should publish apps here):\n\n    %s\n\n", hosting.EncodeConnectCode(server, tokens[0]))
+		fmt.Fprintln(os.Stderr, "  They paste it into the Universal portal, or run:  universal login <code>")
+	}
+	fmt.Fprintln(os.Stderr)
 }
 
 // parsePortRange parses "20000-20100" or a single port; empty means none.
@@ -384,8 +452,8 @@ func parsePortRange(s string) (int, int, error) {
 
 func runExpose(ctx context.Context, log *slog.Logger, args []string) error {
 	fs := flag.NewFlagSet("expose", flag.ContinueOnError)
-	server := fs.String("server", env("UNIVERSAL_SERVER", ""), "relay URL, e.g. https://example.com")
-	token := fs.String("token", env("UNIVERSAL_TOKEN", ""), "relay token")
+	server := fs.String("server", env("UNIVERSAL_SERVER", ""), "relay URL, e.g. https://example.com (default: the one saved by universal login)")
+	token := fs.String("token", env("UNIVERSAL_TOKEN", ""), "relay token (default: the one saved by universal login)")
 	sub := fs.String("subdomain", env("UNIVERSAL_SUBDOMAIN", ""), "public name: <subdomain>.<relay domain> (random if empty)")
 	hostname := fs.String("hostname", "", "full custom hostname (relay must allow custom domains)")
 	spa := fs.Bool("spa", false, "when exposing a folder, serve index.html for unknown paths")
@@ -405,7 +473,17 @@ func runExpose(ctx context.Context, log *slog.Logger, args []string) error {
 		return errors.New("missing target")
 	}
 	if *server == "" {
-		return errors.New("--server is required (or set UNIVERSAL_SERVER), e.g. --server https://example.com")
+		if m, err := portal.Open(portal.DefaultConfigPath(), log); err == nil {
+			if saved := m.Settings(); saved.Server != "" {
+				*server = saved.Server
+				if *token == "" {
+					*token = saved.Token
+				}
+			}
+		}
+	}
+	if *server == "" {
+		return errors.New("no relay configured: run \"universal login <connection code>\" first, or pass --server and --token")
 	}
 	su, err := url.Parse(*server)
 	if err != nil || (su.Scheme != "https" && su.Scheme != "http") || su.Host == "" {
@@ -484,6 +562,20 @@ func runPortal(ctx context.Context, log *slog.Logger, args []string) error {
 	if ip := net.ParseIP(host); (ip == nil || !ip.IsLoopback()) && host != "localhost" && *token == "" {
 		return errors.New("the portal can publish ports on this machine; set --token to listen beyond localhost")
 	}
+	u := "http://" + *listen + "/"
+	if host == "" || host == "0.0.0.0" || host == "::" {
+		u = "http://127.0.0.1:" + strings.TrimPrefix(*listen, host+":") + "/"
+	}
+	if *token != "" {
+		u += "?token=" + url.QueryEscape(*token)
+	}
+	if portalRunning(u, *token) { // already open (double-clicked twice): just show it
+		fmt.Fprintf(os.Stderr, "Universal Portal is already running: %s\n", u)
+		if *open {
+			openBrowser(u)
+		}
+		return nil
+	}
 	m, err := portal.Open(*config, log)
 	if err != nil {
 		return err
@@ -496,18 +588,65 @@ func runPortal(ctx context.Context, log *slog.Logger, args []string) error {
 	m.StartEnabled()
 	defer m.Shutdown()
 
-	u := "http://" + *listen + "/"
-	if host == "" || host == "0.0.0.0" || host == "::" {
-		u = "http://127.0.0.1:" + strings.TrimPrefix(*listen, host+":") + "/"
-	}
-	if *token != "" {
-		u += "?token=" + url.QueryEscape(*token)
-	}
-	fmt.Fprintf(os.Stderr, "\n  Universal Portal:  %s\n  Apps are saved in %s\n\n", u, *config)
+	fmt.Fprintf(os.Stderr, "\n  Universal Portal:  %s\n  Apps are saved in %s\n  Keep this window open while your apps are online.\n\n", u, *config)
 	if *open {
 		openBrowser(u)
 	}
-	return hosting.ServePlain(ctx, (&portal.Server{M: m, Token: *token}).Handler(), *listen)
+	srv := &portal.Server{M: m, Token: *token}
+	if _, p, err := net.SplitHostPort(*listen); err == nil {
+		n, _ := strconv.Atoi(p)
+		srv.SkipPorts = []int{n}
+	}
+	if exe, err := os.Executable(); err == nil {
+		srv.Autostart = &autostart.Entry{Exe: exe, Args: []string{"portal", "--listen", *listen, "--config", *config}}
+	}
+	return hosting.ServePlain(ctx, srv.Handler(), *listen)
+}
+
+func portalRunning(u, token string) bool {
+	req, _ := http.NewRequest("GET", strings.Split(u, "?")[0]+"api/state", nil)
+	req.Header.Set("X-Portal", "1")
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	resp, err := (&http.Client{Timeout: time.Second}).Do(req)
+	if err != nil {
+		return false
+	}
+	resp.Body.Close()
+	return resp.StatusCode == http.StatusOK
+}
+
+// ---------------------------------------------------------------- login
+
+func runLogin(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("login", flag.ContinueOnError)
+	config := fs.String("config", env("UNIVERSAL_PORTAL_CONFIG", portal.DefaultConfigPath()), "where the connection is saved")
+	fs.Usage = func() {
+		fmt.Fprintln(fs.Output(), "usage: universal login <connection code>   (the relay prints the code when it starts)")
+		fs.PrintDefaults()
+	}
+	code, err := parse(fs, args)
+	if err != nil {
+		return err
+	}
+	if code == "" {
+		fs.Usage()
+		return errors.New("missing connection code")
+	}
+	m, err := portal.Open(*config, slog.New(slog.NewTextHandler(io.Discard, nil)))
+	if err != nil {
+		return err
+	}
+	if err := m.Connect(code); err != nil {
+		return err
+	}
+	fmt.Printf("Saved relay %s\n", m.Settings().Server)
+	if err := m.TestRelay(ctx); err != nil {
+		return fmt.Errorf("saved, but the relay could not be reached: %w", err)
+	}
+	fmt.Println("Connected. Publish an app with \"universal expose 3000\" or open the portal with \"universal\".")
+	return nil
 }
 
 func openBrowser(u string) {

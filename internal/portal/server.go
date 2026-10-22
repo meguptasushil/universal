@@ -8,6 +8,9 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"os"
+	"path/filepath"
+	"sort"
 	"strings"
 )
 
@@ -24,6 +27,17 @@ var portalHTML []byte
 type Server struct {
 	M     *Manager
 	Token string // required on every API call when set (needed for non-loopback access)
+	// SkipPorts are left out of discovery (the portal's own port).
+	SkipPorts []int
+	// Autostart, when set, lets the UI turn "start at login" on and off.
+	Autostart Autostarter
+}
+
+// Autostarter starts the portal when the user logs in.
+type Autostarter interface {
+	Enabled() bool
+	Enable() error
+	Disable() error
 }
 
 func loopbackHost(host string) bool {
@@ -62,10 +76,75 @@ func (s *Server) Handler() http.Handler {
 	})
 	mux.HandleFunc("POST /api/settings/test", func(w http.ResponseWriter, r *http.Request) {
 		if err := s.M.TestRelay(r.Context()); err != nil {
-			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": err.Error()})
+			msg, hint := friendly(err)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": msg, "hint": hint, "detail": err.Error()})
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("POST /api/connect", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Code string `json:"code"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		prev := s.M.Settings()
+		if err := s.M.Connect(in.Code); err != nil {
+			reply(w, nil, err)
+			return
+		}
+		if err := s.M.TestRelay(r.Context()); err != nil {
+			// keep the previous relay, so the user stays where they can fix it
+			_ = s.M.UpdateSettings(prev.Server, prev.Token, true)
+			msg, hint := friendly(err)
+			writeJSON(w, http.StatusOK, map[string]any{"ok": false, "error": msg, "hint": hint, "detail": err.Error()})
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+	})
+	mux.HandleFunc("GET /api/discover", func(w http.ResponseWriter, r *http.Request) {
+		found := s.M.Discover(r.Context(), s.SkipPorts...)
+		if found == nil {
+			found = []Found{}
+		}
+		writeJSON(w, http.StatusOK, found)
+	})
+	mux.HandleFunc("GET /api/detect", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, Detect(strings.TrimSpace(r.URL.Query().Get("path"))))
+	})
+	mux.HandleFunc("GET /api/browse", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, browse(r.URL.Query().Get("path")))
+	})
+	mux.HandleFunc("GET /api/apps/{id}/logs", func(w http.ResponseWriter, r *http.Request) {
+		lines, err := s.M.Logs(r.PathValue("id"))
+		if err != nil {
+			reply(w, nil, err)
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"lines": lines})
+	})
+	mux.HandleFunc("GET /api/autostart", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusOK, map[string]bool{"supported": s.Autostart != nil, "enabled": s.Autostart != nil && s.Autostart.Enabled()})
+	})
+	mux.HandleFunc("PUT /api/autostart", func(w http.ResponseWriter, r *http.Request) {
+		var in struct {
+			Enabled bool `json:"enabled"`
+		}
+		if !readJSON(w, r, &in) {
+			return
+		}
+		if s.Autostart == nil {
+			reply(w, nil, errors.New("starting at login isn't supported here"))
+			return
+		}
+		var err error
+		if in.Enabled {
+			err = s.Autostart.Enable()
+		} else {
+			err = s.Autostart.Disable()
+		}
+		reply(w, nil, err)
 	})
 	mux.HandleFunc("POST /api/apps", func(w http.ResponseWriter, r *http.Request) {
 		var a App
@@ -148,4 +227,37 @@ func reply(w http.ResponseWriter, v any, err error) {
 	default:
 		writeJSON(w, http.StatusOK, v)
 	}
+}
+
+// Listing is one folder in the folder picker.
+type Listing struct {
+	Path   string   `json:"path"`
+	Parent string   `json:"parent,omitempty"`
+	Dirs   []string `json:"dirs"`
+	Error  string   `json:"error,omitempty"`
+}
+
+// browse lists the sub-folders of path (default: the home folder), so people
+// can pick a folder instead of typing its path. Hidden folders are skipped.
+func browse(path string) Listing {
+	if path == "" {
+		path, _ = os.UserHomeDir()
+	}
+	path = filepath.Clean(path)
+	l := Listing{Path: path, Dirs: []string{}}
+	if parent := filepath.Dir(path); parent != path {
+		l.Parent = parent
+	}
+	entries, err := os.ReadDir(path)
+	if err != nil {
+		l.Error = "This folder can't be opened."
+		return l
+	}
+	for _, e := range entries {
+		if e.IsDir() && !strings.HasPrefix(e.Name(), ".") && e.Name() != "node_modules" {
+			l.Dirs = append(l.Dirs, e.Name())
+		}
+	}
+	sort.Strings(l.Dirs)
+	return l
 }

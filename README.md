@@ -12,11 +12,29 @@ One small Go binary with two jobs:
 No database server, no cgo, a single dependency. Runs on Linux, macOS and Windows.
 The full design is in [docs/PLAN.md](docs/PLAN.md).
 
-## Install
+## Quick start (no technical knowledge needed)
+
+**New here? Read [docs/GETTING-STARTED.md](docs/GETTING-STARTED.md)**, a step-by-step guide with no jargon.
+
+1. **Once, on any small cloud server:** run this. It needs no domain or DNS setup, and it
+   prints a *connection code*.
+   ```sh
+   curl -fsSL https://raw.githubusercontent.com/meguptasushil/universal/main/deploy/install.sh | sudo sh -s -- relay
+   ```
+2. **On your computer**, install Universal:
+   - Windows (PowerShell): `irm https://raw.githubusercontent.com/meguptasushil/universal/main/deploy/install.ps1 | iex`
+   - Mac/Linux: `curl -fsSL https://raw.githubusercontent.com/meguptasushil/universal/main/deploy/install.sh | sh`
+3. Open **Universal** (the Desktop shortcut, or type `universal`). Paste the connection code,
+   then click **Publish** next to an app it found, or pick a project folder and Universal
+   starts it for you.
+
+The installers download ready-made programs from GitHub Releases. Push a tag such as `v0.1.0`
+to publish them (`.github/workflows/release.yml`).
+
+## Build from source
 
 ```sh
-go install github.com/meguptasushil/universal/cmd/universal@latest
-# or, from a checkout (needs Go 1.22+)
+go install github.com/meguptasushil/universal/cmd/universal@latest   # Go 1.22+
 make build            # → ./universal
 make release          # cross-compile into dist/ for linux, macOS and windows
 ```
@@ -133,22 +151,28 @@ usage is being recorded.
 
 **One-time setup on any cheap cloud VM with a public IP:**
 
-1. DNS: `A  example.com → VM_IP` and `A  *.example.com → VM_IP`
-2. Open ports 80 and 443, plus a port range for TCP tunnels if you want them.
-3. Start the relay:
-
 ```sh
-sudo sh deploy/install.sh relay example.com MY_SECRET you@example.com 20000-20100
-# or by hand / docker:
-universal relay --domain example.com --token MY_SECRET --email you@example.com --tcp-ports 20000-20100
+universal relay                  # that's all: no domain, DNS or token needed
 ```
 
-HTTPS certificates come from Let's Encrypt automatically, one per subdomain on its first visit.
+With no `--domain`, the relay detects its public IP and uses the free wildcard name
+`<ip>.sslip.io`. With no `--token`, it generates one and keeps it in `--state`. It then
+prints a **connection code** (`uni1.…`) that holds the address and token in one string.
+Users paste the code into the portal, or run `universal login <code>`. `universal relay
+--show-code` prints the code again. To run the relay as a service:
+`sudo sh deploy/install.sh relay [domain] [20000-20100]`.
+
+For production, use your own domain: point `A example.com` and `A *.example.com` at the VM,
+then run `universal relay --domain example.com --email you@example.com --tcp-ports
+20000-20100`. Open ports 80 and 443, plus the TCP range if you use one. HTTPS certificates
+come from Let's Encrypt automatically, one per subdomain on its first visit. Free sslip.io
+names share Let's Encrypt's rate limits with other users of that service, so prefer your
+own domain for anything important.
 
 **Then, from any machine, one command:**
 
 ```sh
-export UNIVERSAL_SERVER=https://example.com UNIVERSAL_TOKEN=MY_SECRET
+universal login uni1.eyJz...                # once: saves the relay for expose and the portal
 
 universal expose 3000 --subdomain myapp     # web app/API → https://myapp.example.com
 universal expose ./public --subdomain www   # static site → https://www.example.com
@@ -170,15 +194,26 @@ protocol's own TLS.
 ### Prefer a UI? The portal
 
 ```sh
-universal portal --open          # http://127.0.0.1:7070
+universal                        # or: universal portal --open  (http://127.0.0.1:7070)
 ```
 
-The portal is a local web page for the same job:
-1. Enter your relay address and token once. **Test connection** checks both.
-2. Choose **Web app / API**, **Website folder** or **Database / TCP service**.
-3. Enter the port or folder and a public name. The page previews the public address
+The portal is a local web page for the same job, made for people who don't use a terminal:
+1. **Connect**: paste the relay's connection code once. If it fails, the error is explained
+   in plain words, and nothing is saved.
+2. **Running on this computer**: the portal finds web apps and databases that are already
+   running, and you publish one with one click.
+3. **Publish something**: choose *an app that's running* (a port), *a project folder*,
+   *a website folder* or *a database or other service*. For a project folder, the portal
+   detects how to start it and runs it for you, with logs:
+   - Node.js (Vite, Next.js, npm start),
+   - Python (Django, Flask, FastAPI, Streamlit),
+   - Go,
+   - Docker.
+
+   **Browse…** picks folders without typing paths, and the page previews the public address
    before you publish.
-4. Press **Publish**.
+4. **Settings**: switch relays, and choose whether to *start at login* (systemd or XDG
+   autostart on Linux, a LaunchAgent on macOS, the Startup folder on Windows).
 
 Each app shows whether it's online, its public URL (with a copy button), whether
 anything is listening locally, how many connections it has had, and any error. You can
@@ -218,7 +253,8 @@ make test     # go vet + go test -race ./...
 cmd/universal/       CLI (monitor, relay, expose, serve)
 internal/monitor/    LLM gateway, provider parsers, event store, API, dashboard, hook adapter
 internal/hosting/    tunnel protocol, relay, client, TCP tunnels, static/proxy serving, autocert
-internal/portal/     web UI + API for publishing apps without the CLI
+internal/portal/     web UI + API: connect wizard, app discovery, project runner, friendly errors
+internal/autostart/  start the portal at login on Linux, macOS and Windows
 deploy/              Dockerfile assets, systemd units, install script, Claude Code hooks
 docs/PLAN.md         architecture and roadmap
 ```

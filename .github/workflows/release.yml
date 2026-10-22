@@ -1,0 +1,27 @@
+# Push a tag like v0.1.0 to publish ready-to-run downloads for every OS.
+# The install scripts download from the latest release.
+name: Release
+on:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.22"
+      - run: go test ./...
+      - run: make release VERSION=${{ github.ref_name }}
+      - run: cd dist && sha256sum * > checksums.txt
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true

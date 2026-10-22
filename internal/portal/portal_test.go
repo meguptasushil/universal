@@ -11,6 +11,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"strings"
 	"testing"
@@ -21,7 +22,7 @@ import (
 
 func quiet() *slog.Logger { return slog.New(slog.NewTextHandler(io.Discard, nil)) }
 
-func freePort(t *testing.T) int {
+func freeTestPort(t *testing.T) int {
 	l, _ := net.Listen("tcp", "127.0.0.1:0")
 	defer l.Close()
 	return l.Addr().(*net.TCPAddr).Port
@@ -64,7 +65,7 @@ func viaRelay(t *testing.T, relay, host string) string {
 }
 
 func TestPublishWebFolderAndTCP(t *testing.T) {
-	tcpPort := freePort(t)
+	tcpPort := freeTestPort(t)
 	relay := startRelay(t, tcpPort)
 	backend := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) { io.WriteString(w, "backend ok") }))
 	defer backend.Close()
@@ -160,7 +161,7 @@ func TestPublishWebFolderAndTCP(t *testing.T) {
 		}
 	}
 	raw, _ := os.ReadFile(cfg)
-	if st, _ := os.Stat(cfg); st.Mode().Perm() != 0o600 || !strings.Contains(string(raw), `"token": "tok"`) {
+	if st, _ := os.Stat(cfg); (runtime.GOOS != "windows" && st.Mode().Perm() != 0o600) || !strings.Contains(string(raw), `"token": "tok"`) {
 		t.Fatalf("config not saved privately: %v", st.Mode())
 	}
 	if err := m2.Delete(web.ID); err != nil || len(m2.State().Apps) != 2 {
@@ -179,8 +180,8 @@ func TestBadTokenShowsError(t *testing.T) {
 	a, _ := m.Add(App{Target: "3000"})
 	m.Start(a.ID)
 	s := waitStatus(t, m, a.ID, StatusError)
-	if !strings.Contains(s.Error, "invalid token") {
-		t.Fatalf("error: %q", s.Error)
+	if !strings.Contains(s.Detail, "invalid token") || s.Error != "The relay didn't accept your access code." || s.Hint == "" {
+		t.Fatalf("error: %q / %q / %q", s.Error, s.Hint, s.Detail)
 	}
 	// starting again after fixing the token works
 	m.UpdateSettings(relay, "tok", false)

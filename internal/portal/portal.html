@@ -5,117 +5,190 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Universal Portal</title>
 <style>
-:root{--bg:#f5f6f8;--panel:#fff;--fg:#1b2130;--muted:#677085;--line:#e2e5eb;--accent:#2f6fed;--accent-fg:#fff;--ok:#1f8a5b;--warn:#b7791f;--err:#c93a3a;--soft:#eef3ff}
-@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--panel:#171b23;--fg:#e6e9ef;--muted:#8d95a7;--line:#272d39;--accent:#6d9bff;--accent-fg:#0f1218;--ok:#4cc38a;--warn:#e0b25a;--err:#ff7272;--soft:#1c2433}}
+:root{--bg:#f5f6f8;--panel:#fff;--fg:#1b2130;--muted:#677085;--line:#e2e5eb;--accent:#2f6fed;--accent-fg:#fff;--ok:#1f8a5b;--warn:#b7791f;--err:#c93a3a;--soft:#eef3ff;--errsoft:#fdeeee}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--panel:#171b23;--fg:#e6e9ef;--muted:#8d95a7;--line:#272d39;--accent:#6d9bff;--accent-fg:#0f1218;--ok:#4cc38a;--warn:#e0b25a;--err:#ff7272;--soft:#1c2433;--errsoft:#2a1a1d}}
 *{box-sizing:border-box}
-body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+body{margin:0;background:var(--bg);color:var(--fg);font:15px/1.5 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
 header{display:flex;align-items:center;gap:12px;padding:14px 16px;background:var(--panel);border-bottom:1px solid var(--line);flex-wrap:wrap}
-header h1{font-size:17px;margin:0}
-.wrap{max-width:1000px;margin:0 auto;padding:16px}
-.card{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:16px;margin-bottom:16px}
-.card h2{font-size:15px;margin:0 0 12px}
-.muted{color:var(--muted)}.small{font-size:12px}
-label{display:block;font-size:12px;color:var(--muted);margin:10px 0 4px}
-input[type=text],input[type=password],input[type=number]{width:100%;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:8px 10px}
-input:focus{outline:2px solid var(--accent);outline-offset:-1px}
+header h1{font-size:18px;margin:0}
+.wrap{max-width:960px;margin:0 auto;padding:16px}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:18px;margin-bottom:16px}
+.card h2{font-size:17px;margin:0 0 4px}
+.lead{color:var(--muted);margin:0 0 14px}
+.muted{color:var(--muted)}.small{font-size:13px}
+.step{display:inline-block;font-size:12px;font-weight:600;color:var(--accent);background:var(--soft);border-radius:999px;padding:2px 10px;margin-bottom:8px}
+label{display:block;font-size:13px;color:var(--muted);margin:12px 0 4px}
+input[type=text],input[type=password],input[type=number],textarea{width:100%;font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:9px;padding:9px 11px}
+textarea{font-family:ui-monospace,Menlo,monospace;font-size:13px;resize:vertical}
+input:focus,textarea:focus{outline:2px solid var(--accent);outline-offset:-1px}
 .grid{display:grid;grid-template-columns:1fr 1fr;gap:0 16px}
 @media (max-width:640px){.grid{grid-template-columns:1fr}}
-button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:8px;padding:7px 12px}
+button{font:inherit;cursor:pointer;border:1px solid var(--line);background:var(--panel);color:var(--fg);border-radius:9px;padding:8px 14px}
 button.primary{background:var(--accent);border-color:var(--accent);color:var(--accent-fg);font-weight:600}
+button.big{padding:11px 20px;font-size:16px}
 button.danger{color:var(--err)}
+button.link{border:0;background:none;color:var(--accent);padding:0;text-decoration:underline}
 button:disabled{opacity:.5;cursor:default}
 .row{display:flex;gap:8px;align-items:center;flex-wrap:wrap}
 .spacer{flex:1}
-.seg{display:inline-flex;border:1px solid var(--line);border-radius:10px;overflow:hidden;flex-wrap:wrap}
-.seg button{border:0;border-radius:0;padding:8px 14px}
-.seg button.on{background:var(--soft);color:var(--accent);font-weight:600}
+.kinds{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:6px}
+@media (max-width:760px){.kinds{grid-template-columns:repeat(2,1fr)}}
+.kinds button{text-align:left;padding:10px 12px;border-radius:12px}
+.kinds button b{display:block;font-size:14px}
+.kinds button span{display:block;font-size:12px;color:var(--muted)}
+.kinds button.on{border-color:var(--accent);background:var(--soft);box-shadow:inset 0 0 0 1px var(--accent)}
 .pill{display:inline-flex;align-items:center;gap:6px;font-size:12px;padding:2px 9px;border-radius:999px;border:1px solid var(--line);white-space:nowrap}
 .dot{width:8px;height:8px;border-radius:50%;background:var(--muted);display:inline-block}
 .s-online .dot{background:var(--ok)}.s-connecting .dot,.s-reconnecting .dot{background:var(--warn)}.s-error .dot{background:var(--err)}
-.preview{margin-top:8px;font-size:13px;padding:8px 10px;border-radius:8px;background:var(--soft);word-break:break-all}
-.app{border:1px solid var(--line);border-radius:10px;padding:14px;margin-top:10px}
-.app h3{margin:0;font-size:15px}
-.url{font-family:ui-monospace,Menlo,monospace;font-size:13px;word-break:break-all}
-.url a{color:var(--accent);text-decoration:none}
-.err{color:var(--err);font-size:13px;margin-top:6px}
-.meta{display:flex;gap:14px;flex-wrap:wrap;font-size:12px;color:var(--muted);margin-top:8px}
-.empty{text-align:center;color:var(--muted);padding:24px}
-details summary{cursor:pointer;color:var(--muted);font-size:13px;margin-top:12px}
-.check{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:13px}
-#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:8px 14px;border-radius:8px;font-size:13px;display:none;max-width:calc(100% - 32px)}
-code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg);padding:1px 5px;border-radius:4px}
-.hidden{display:none}
+.preview{margin-top:10px;font-size:14px;padding:9px 11px;border-radius:9px;background:var(--soft);word-break:break-all}
+.note{margin-top:8px;font-size:13px;color:var(--muted)}
+.app,.found{border:1px solid var(--line);border-radius:12px;padding:14px;margin-top:10px}
+.found{display:flex;align-items:center;gap:10px;flex-wrap:wrap;padding:10px 14px}
+.app h3{margin:0;font-size:16px}
+.url{font-family:ui-monospace,Menlo,monospace;font-size:14px;word-break:break-all}
+.url a{color:var(--accent);text-decoration:none;font-weight:600}
+.problem{background:var(--errsoft);border-radius:9px;padding:9px 11px;margin-top:10px;font-size:14px}
+.problem b{color:var(--err)}
+.problem .detail{font-size:12px;color:var(--muted);margin-top:4px;font-family:ui-monospace,Menlo,monospace;word-break:break-all}
+.meta{display:flex;gap:14px;flex-wrap:wrap;font-size:13px;color:var(--muted);margin-top:8px}
+.empty{text-align:center;color:var(--muted);padding:20px}
+details summary{cursor:pointer;color:var(--accent);font-size:14px;margin-top:14px}
+details .box{border-left:3px solid var(--line);padding:4px 0 4px 12px;margin-top:8px}
+.check{display:flex;gap:8px;align-items:center;margin-top:12px;font-size:14px}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:8px;padding:10px;font:12px/1.5 ui-monospace,Menlo,monospace;margin:6px 0}
+#toast{position:fixed;bottom:16px;left:50%;transform:translateX(-50%);background:var(--fg);color:var(--bg);padding:9px 15px;border-radius:9px;font-size:14px;display:none;max-width:calc(100% - 32px);z-index:5}
+code{font-family:ui-monospace,Menlo,monospace;font-size:13px;background:var(--bg);padding:1px 5px;border-radius:4px;word-break:break-all}
+dialog{max-width:820px;width:calc(100% - 32px);border:1px solid var(--line);border-radius:14px;background:var(--panel);color:var(--fg);padding:0}
+dialog::backdrop{background:#0008}
+dialog .head{display:flex;align-items:center;gap:8px;padding:14px 16px;border-bottom:1px solid var(--line)}
+dialog .body{padding:14px 16px;max-height:65vh;overflow:auto}
+.dirs button{display:block;width:100%;text-align:left;border:0;border-bottom:1px solid var(--line);border-radius:0;padding:8px 6px;background:none}
+.dirs button:hover{background:var(--soft)}
+.hidden{display:none !important}
+.ok{color:var(--ok)}.bad{color:var(--err)}
 </style>
 </head>
 <body>
 <header>
   <h1>Universal Portal</h1>
-  <span class="muted small">Publish apps from this computer to the internet</span>
+  <span class="muted small">Put apps from this computer on the internet</span>
   <span class="spacer"></span>
-  <span id="relay-pill" class="pill"><span class="dot"></span><span id="relay-text">No relay</span></span>
-  <button id="btn-settings">Relay settings</button>
+  <span id="relay-pill" class="pill"><span class="dot"></span><span id="relay-text">Not connected</span></span>
+  <button id="btn-settings">Settings</button>
 </header>
 <div class="wrap">
 
-  <section class="card hidden" id="settings">
-    <h2>Relay server</h2>
-    <p class="muted small" style="margin-top:0">
-      Apps are published through a relay: a small server with a public IP and a domain.
-      Set one up once with <code>universal relay --domain example.com --token SECRET</code>
-      (DNS: <code>example.com</code> and <code>*.example.com</code> → the server). Then enter it here.
-    </p>
-    <div class="grid">
-      <div><label for="s-server">Relay address</label><input id="s-server" type="text" placeholder="https://example.com"></div>
-      <div><label for="s-token">Token</label><input id="s-token" type="password" placeholder="relay token" autocomplete="off"></div>
+  <!-- First run: connect -->
+  <section class="card hidden" id="welcome">
+    <span class="step">Step 1 of 2</span>
+    <h2>Connect to your relay</h2>
+    <p class="lead">A relay is the server that gives your apps a public address. Whoever runs it gives you a
+      <b>connection code</b> (it starts with <code>uni1.</code>). Paste it here.</p>
+    <textarea id="w-code" rows="3" placeholder="uni1.eyJzIjoiaHR0cHM6Ly9leGFtcGxlLmNvbSIsInQiOiIuLi4ifQ"></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="primary big" id="w-connect">Connect</button>
+      <span id="w-result"></span>
     </div>
-    <div class="row" style="margin-top:12px">
-      <button class="primary" id="s-save">Save</button>
-      <button id="s-test">Test connection</button>
+    <details>
+      <summary>I don't have a relay yet</summary>
+      <div class="box small">
+        <p>Rent any small cloud server (Linux, about $5 a month, from any provider) and run this one line on it:</p>
+        <pre>curl -fsSL https://raw.githubusercontent.com/meguptasushil/universal/main/deploy/install.sh | sudo sh -s -- relay</pre>
+        <p>That's it: no domain or DNS setup needed. When it finishes it prints a connection code. Paste that code above.
+          Want your own domain (like <code>myapps.com</code>)? See the guide in the project's <code>docs/GETTING-STARTED.md</code>.</p>
+      </div>
+    </details>
+    <details>
+      <summary>I have an address and a token instead</summary>
+      <div class="box grid">
+        <div><label for="w-server">Relay address</label><input id="w-server" type="text" placeholder="https://example.com"></div>
+        <div><label for="w-token">Token</label><input id="w-token" type="password" autocomplete="off"></div>
+        <div><button id="w-save" style="margin-top:10px">Connect</button></div>
+      </div>
+    </details>
+  </section>
+
+  <!-- Settings -->
+  <section class="card hidden" id="settings">
+    <h2>Settings</h2>
+    <p class="lead" id="s-current"></p>
+    <label for="s-code">Switch to another relay: paste its connection code</label>
+    <textarea id="s-code" rows="2" placeholder="uni1...."></textarea>
+    <div class="row" style="margin-top:10px">
+      <button class="primary" id="s-connect">Connect</button>
+      <button id="s-test">Test the current connection</button>
       <span id="s-result" class="small"></span>
     </div>
+    <label class="check" id="s-auto-row"><input type="checkbox" id="s-auto"> Start Universal automatically when I log in, so my apps come back online after a restart</label>
   </section>
 
-  <section class="card">
-    <h2 id="form-title">Publish an app</h2>
-    <div class="seg" id="kind">
-      <button data-kind="web" class="on">Web app / API</button>
-      <button data-kind="folder">Website folder</button>
-      <button data-kind="tcp">Database / TCP service</button>
-    </div>
-    <div class="grid">
-      <div><label for="f-target" id="l-target">Local port or address</label><input id="f-target" type="text" placeholder="3000  or  http://localhost:8080"></div>
-      <div><label for="f-name">Name</label><input id="f-name" type="text" placeholder="My app"></div>
-      <div class="web-only"><label for="f-sub">Public name</label><input id="f-sub" type="text" placeholder="myapp (random if empty)"></div>
-      <div class="tcp-only hidden"><label for="f-port">Public port (optional)</label><input id="f-port" type="number" min="1" max="65535" placeholder="any free port"></div>
-      <div class="tcp-only hidden"><label for="f-allow">Only allow these IPs (recommended)</label><input id="f-allow" type="text" placeholder="203.0.113.7, 10.0.0.0/8"></div>
-    </div>
-    <div class="preview" id="preview"></div>
-    <label class="check folder-only hidden"><input id="f-spa" type="checkbox"> Single-page app (send unknown paths to index.html)</label>
-    <details class="web-only">
-      <summary>Use my own domain</summary>
-      <label for="f-host">Custom hostname (CNAME it to the relay; the relay must allow custom domains)</label>
-      <input id="f-host" type="text" placeholder="www.mybusiness.com">
-    </details>
-    <div class="row" style="margin-top:14px">
-      <button class="primary" id="f-publish">Publish</button>
-      <button id="f-save">Save without starting</button>
-      <button id="f-cancel" class="hidden">Cancel</button>
-      <span class="err" id="f-error"></span>
-    </div>
-  </section>
+  <div id="main" class="hidden">
+    <!-- Found on this computer -->
+    <section class="card" id="found-card">
+      <div class="row"><h2>Running on this computer</h2><span class="spacer"></span><button id="rescan" class="small">Look again</button></div>
+      <p class="lead small" style="margin:2px 0 0">Apps and services we found. Publish one with a single click.</p>
+      <div id="found"><div class="empty">Looking…</div></div>
+    </section>
 
-  <section class="card">
-    <div class="row"><h2 style="margin:0">Your apps</h2><span class="spacer"></span><span class="muted small" id="count"></span></div>
-    <div id="apps"></div>
-  </section>
+    <!-- Publish form -->
+    <section class="card">
+      <span class="step hidden" id="step2">Step 2 of 2</span>
+      <h2 id="form-title">Publish something</h2>
+      <p class="lead small">What do you want to put online?</p>
+      <div class="kinds" id="kind">
+        <button data-kind="web" class="on"><b>An app that's running</b><span>Something open on a port, like 3000</span></button>
+        <button data-kind="project"><b>A project folder</b><span>We'll start it for you</span></button>
+        <button data-kind="folder"><b>A website folder</b><span>HTML files, nothing to run</span></button>
+        <button data-kind="tcp"><b>A database or other service</b><span>PostgreSQL, MySQL, SSH…</span></button>
+      </div>
+
+      <div class="grid">
+        <div class="t-port"><label for="f-target">Port number</label><input id="f-target" type="text" placeholder="for example 3000"></div>
+        <div class="t-folder hidden"><label for="f-folder">Folder</label>
+          <div class="row" style="flex-wrap:nowrap"><input id="f-folder" type="text" placeholder="choose a folder"><button id="f-browse">Browse…</button></div></div>
+        <div><label for="f-name">Name (just for you)</label><input id="f-name" type="text" placeholder="My app"></div>
+        <div class="web-only"><label for="f-sub">Public name</label><input id="f-sub" type="text" placeholder="myapp (a random one if empty)"></div>
+        <div class="tcp-only hidden"><label for="f-allow">Who may connect? (IP addresses)</label><input id="f-allow" type="text" placeholder="your office IP, e.g. 203.0.113.7"></div>
+      </div>
+      <div class="t-project hidden">
+        <div class="note" id="detect-note"></div>
+        <label for="f-command">Start command (filled in for you; change it only if needed)</label>
+        <input id="f-command" type="text" placeholder="npm start">
+      </div>
+      <div class="preview" id="preview"></div>
+      <label class="check t-static hidden"><input id="f-spa" type="checkbox"> This is a single-page app (React, Vue…)</label>
+      <details class="adv">
+        <summary>More options</summary>
+        <div class="box grid">
+          <div class="web-only"><label for="f-host">Use my own domain (point it at the relay with a CNAME record)</label><input id="f-host" type="text" placeholder="www.mybusiness.com"></div>
+          <div class="tcp-only hidden"><label for="f-port">Public port</label><input id="f-port" type="number" min="1" max="65535" placeholder="any free port"></div>
+        </div>
+      </details>
+      <div class="row" style="margin-top:16px">
+        <button class="primary big" id="f-publish">Publish</button>
+        <button id="f-save">Save for later</button>
+        <button id="f-cancel" class="hidden">Cancel</button>
+      </div>
+      <div class="problem hidden" id="f-problem"></div>
+    </section>
+
+    <section class="card">
+      <div class="row"><h2>Your apps</h2><span class="spacer"></span><span class="muted small" id="count"></span></div>
+      <div id="apps"></div>
+    </section>
+  </div>
 </div>
+
+<dialog id="logs"><div class="head"><b id="logs-title">Logs</b><span class="spacer"></span><button id="logs-close">Close</button></div><div class="body"><pre id="logs-body"></pre></div></dialog>
+<dialog id="picker"><div class="head"><b>Choose a folder</b><span class="spacer"></span><button id="pick-cancel">Cancel</button><button class="primary" id="pick-ok">Use this folder</button></div>
+  <div class="body"><div class="small muted" id="pick-path"></div><div class="dirs" id="pick-dirs"></div></div></dialog>
 <div id="toast"></div>
 <script>
 (function(){
   var $ = function(id){ return document.getElementById(id); };
   var token = '';
   try { token = new URLSearchParams(location.search).get('token') || localStorage.getItem('portalToken') || ''; if (token) localStorage.setItem('portalToken', token); } catch (e) {}
-  var state = null, kind = 'web', editing = null;
+  var state = null, kind = 'web', editing = null, logsFor = null;
 
   function api(method, path, body){
     var h = {'X-Portal': '1'};
@@ -125,149 +198,265 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px;background:var(--bg
       .then(function(r){ return r.json().catch(function(){ return {}; }).then(function(j){ if (!r.ok) throw new Error(j.error || r.statusText); return j; }); });
   }
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"']/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]; }); }
-  function toast(msg){ var t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(function(){ t.style.display = 'none'; }, 2600); }
+  function toast(msg){ var t = $('toast'); t.textContent = msg; t.style.display = 'block'; clearTimeout(t._h); t._h = setTimeout(function(){ t.style.display = 'none'; }, 3000); }
+  function show(el, on){ el.classList.toggle('hidden', !on); }
+  function slug(s){ return String(s || '').toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-+|-+$/g, '').slice(0, 24).replace(/-+$/, ''); }
   function ago(iso){
     if (!iso || iso.indexOf('0001') === 0) return '';
     var s = Math.max(0, Math.round((Date.now() - new Date(iso)) / 1000));
-    if (s < 60) return s + 's'; if (s < 3600) return Math.floor(s/60) + 'm'; if (s < 86400) return Math.floor(s/3600) + 'h ' + Math.floor(s%3600/60) + 'm';
-    return Math.floor(s/86400) + 'd';
+    if (s < 60) return s + ' seconds'; if (s < 3600) return Math.floor(s/60) + ' min'; if (s < 86400) return Math.floor(s/3600) + ' h ' + Math.floor(s%3600/60) + ' min';
+    return Math.floor(s/86400) + ' days';
   }
+  function problemHTML(msg, hint, detail){
+    return '<b>' + esc(msg) + '</b>' + (hint ? '<div>' + esc(hint) + '</div>' : '') + (detail && detail !== msg ? '<div class="detail">' + esc(detail) + '</div>' : '');
+  }
+  function result(el, r){ el.innerHTML = r.ok ? '<span class="ok">✓ Connected. Your access code works.</span>' : '<span class="bad">' + esc(r.error) + '</span>' + (r.hint ? ' <span class="muted small">' + esc(r.hint) + '</span>' : ''); }
 
-  // ---- form
+  // ---------------------------------------------------------------- connect
+  function connect(code, out){
+    out.textContent = 'Connecting…';
+    return api('POST', '/api/connect', {code: code}).then(function(r){ result(out, r); refresh(); return r; })
+      .catch(function(e){ out.innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; });
+  }
+  $('w-connect').onclick = function(){ connect($('w-code').value, $('w-result')).then(function(r){ if (r && r.ok) toast('Connected! Now choose something to publish.'); }); };
+  $('w-save').onclick = function(){
+    $('w-result').textContent = 'Connecting…';
+    api('PUT', '/api/settings', {server: $('w-server').value, token: $('w-token').value})
+      .then(function(){ return api('POST', '/api/settings/test'); })
+      .then(function(r){
+        result($('w-result'), r);
+        if (!r.ok) return api('PUT', '/api/settings', {server: '', clear_token: true}); // stay on the setup screen
+      }).then(refresh)
+      .catch(function(e){ $('w-result').innerHTML = '<span class="bad">' + esc(e.message) + '</span>'; });
+  };
+  $('s-connect').onclick = function(){ connect($('s-code').value, $('s-result')).then(function(){ $('s-code').value = ''; }); };
+  $('s-test').onclick = function(){ $('s-result').textContent = 'Testing…'; api('POST', '/api/settings/test').then(function(r){ result($('s-result'), r); }); };
+  $('btn-settings').onclick = function(){ show($('settings'), $('settings').classList.contains('hidden')); };
+  api('GET', '/api/autostart').then(function(a){ show($('s-auto-row'), a.supported); $('s-auto').checked = a.enabled; }).catch(function(){});
+  $('s-auto').onchange = function(){
+    api('PUT', '/api/autostart', {enabled: $('s-auto').checked}).then(function(){ toast($('s-auto').checked ? 'Universal will start when you log in' : 'Universal won\'t start at login'); })
+      .catch(function(e){ toast(e.message); $('s-auto').checked = !$('s-auto').checked; });
+  };
+
+  // ---------------------------------------------------------------- found apps
+  function scan(){
+    api('GET', '/api/discover').then(function(list){
+      var el = $('found');
+      var fresh = list.filter(function(f){ return !f.published; });
+      if (!fresh.length) { el.innerHTML = '<div class="empty small">Nothing new found on the usual ports. Start your app, then press <b>Look again</b>, or use the form below.</div>'; return; }
+      el.textContent = '';
+      fresh.forEach(function(f){
+        var d = document.createElement('div'); d.className = 'found';
+        d.innerHTML = '<span class="pill">' + (f.kind === 'web' ? 'Website / app' : 'Service') + '</span><b>' + esc(f.name) + '</b><span class="muted small">port ' + f.port + '</span><span class="spacer"></span>';
+        var b = document.createElement('button'); b.className = 'primary'; b.textContent = 'Publish';
+        b.onclick = function(){
+          b.disabled = true;
+          var app = {name: f.name, target: String(f.port), tcp: f.kind !== 'web', subdomain: f.kind === 'web' ? slug(f.name) : ''};
+          if (app.subdomain && !/^[a-z0-9]/.test(app.subdomain)) app.subdomain = '';
+          api('POST', '/api/apps?start=1', app).then(function(){ toast('Publishing ' + f.name + '…'); refresh(); scan(); })
+            .catch(function(e){ b.disabled = false; toast(e.message); refresh(); });
+        };
+        d.appendChild(b); el.appendChild(d);
+      });
+    }).catch(function(){});
+  }
+  $('rescan').onclick = scan;
+
+  // ---------------------------------------------------------------- form
   function setKind(k){
     kind = k;
     Array.prototype.forEach.call($('kind').children, function(b){ b.classList.toggle('on', b.dataset.kind === k); });
-    document.querySelectorAll('.web-only').forEach(function(el){ el.classList.toggle('hidden', k === 'tcp'); });
-    document.querySelectorAll('.tcp-only').forEach(function(el){ el.classList.toggle('hidden', k !== 'tcp'); });
-    document.querySelectorAll('.folder-only').forEach(function(el){ el.classList.toggle('hidden', k !== 'folder'); });
-    $('l-target').textContent = {web: 'Local port or address', folder: 'Folder on this computer', tcp: 'Local port of the service'}[k];
-    $('f-target').placeholder = {web: '3000  or  http://localhost:8080', folder: '/home/me/my-site  or  C:\\sites\\my-site', tcp: '5432 (PostgreSQL), 3306 (MySQL), 6379 (Redis), 22 (SSH)…'}[k];
+    var folderish = k === 'project' || k === 'folder';
+    document.querySelectorAll('.t-port').forEach(function(el){ show(el, !folderish); });
+    document.querySelectorAll('.t-folder').forEach(function(el){ show(el, folderish); });
+    document.querySelectorAll('.t-project').forEach(function(el){ show(el, k === 'project'); });
+    document.querySelectorAll('.t-static').forEach(function(el){ show(el, k === 'folder'); });
+    document.querySelectorAll('.web-only').forEach(function(el){ show(el, k !== 'tcp'); });
+    document.querySelectorAll('.tcp-only').forEach(function(el){ show(el, k === 'tcp'); });
+    $('f-target').placeholder = k === 'tcp' ? 'for example 5432 (PostgreSQL), 3306 (MySQL), 22 (SSH)' : 'for example 3000';
+    if (k === 'project' && $('f-folder').value) detect();
     preview();
   }
   Array.prototype.forEach.call($('kind').children, function(b){ b.onclick = function(){ setKind(b.dataset.kind); }; });
+
+  function relayURL(){ try { return new URL(state.settings.server); } catch (e) { return null; } }
   function preview(){
-    var d = state && state.settings.domain, p = $('preview');
-    if (!d) { p.innerHTML = 'Set up your <a href="#" id="go-settings">relay server</a> to get a public address.'; var g = $('go-settings'); if (g) g.onclick = function(e){ e.preventDefault(); showSettings(true); }; return; }
+    var p = $('preview'), u = relayURL(), d = state && state.settings.domain;
+    if (!u || !d) { p.textContent = ''; show(p, false); return; }
+    show(p, true);
     if (kind === 'tcp') {
-      p.textContent = 'Public address: ' + d + ':' + ($('f-port').value || '<assigned port>') + (($('f-allow').value.trim()) ? '  · only from ' + $('f-allow').value.trim() : '  · open to everyone. Add allowed IPs and keep the service password-protected.');
+      var allow = $('f-allow').value.trim();
+      p.innerHTML = 'People will connect to <b>' + esc(d) + ':' + esc($('f-port').value || '(port chosen for you)') + '</b>' +
+        (allow ? ', only from ' + esc(allow) : '<br><span class="small" style="color:var(--warn)">Tip: fill in "Who may connect?". Otherwise anyone on the internet can try to reach this service.</span>');
     } else {
-      var scheme = 'https:', port = '';
-      try { var u = new URL(state.settings.server); scheme = u.protocol; port = u.port ? ':' + u.port : ''; } catch (e) {}
-      var host = $('f-host').value.trim() || (($('f-sub').value.trim() || '<random>') + '.' + d + port);
-      p.textContent = 'Public address: ' + scheme + '//' + host;
+      var port = u.port ? ':' + u.port : '';
+      var name = $('f-sub').value.trim() ? slug($('f-sub').value) : null;
+      var host = $('f-host').value.trim() || ((name || '<random name>') + '.' + d + port);
+      p.innerHTML = 'Your public address will be <b>' + esc(u.protocol + '//' + host) + '</b>';
     }
   }
-  ['f-sub','f-host','f-port','f-allow'].forEach(function(id){ $(id).oninput = preview; });
+  ['f-sub','f-host','f-port','f-allow'].forEach(function(id){ $(id).addEventListener('input', preview); });
+
+  var detectTimer;
+  function detect(){
+    var path = $('f-folder').value.trim();
+    if (!path || kind !== 'project') return;
+    api('GET', '/api/detect?path=' + encodeURIComponent(path)).then(function(d){
+      $('detect-note').innerHTML = (d.type === 'unknown' ? '⚠ ' : '✓ ') + esc(d.note);
+      if (d.type === 'static') { $('detect-note').innerHTML += ' <button class="link" id="to-static">Publish it as a website folder</button>'; $('to-static').onclick = function(){ setKind('folder'); }; }
+      if (d.command && !$('f-command')._edited) $('f-command').value = d.command;
+    });
+  }
+  $('f-folder').addEventListener('input', function(){ clearTimeout(detectTimer); detectTimer = setTimeout(detect, 400); if (!$('f-name').value) $('f-name').placeholder = $('f-folder').value.split(/[\\/]/).filter(Boolean).pop() || 'My app'; });
+  $('f-command').addEventListener('input', function(){ $('f-command')._edited = true; });
 
   function formApp(){
+    var folderish = kind === 'project' || kind === 'folder';
     return {
-      name: $('f-name').value, target: $('f-target').value, tcp: kind === 'tcp',
-      subdomain: kind === 'tcp' ? '' : $('f-sub').value, hostname: kind === 'tcp' ? '' : $('f-host').value,
+      name: $('f-name').value || $('f-name').placeholder.replace(/^My app$/, ''),
+      target: folderish ? $('f-folder').value : $('f-target').value,
+      command: kind === 'project' ? $('f-command').value : '',
+      tcp: kind === 'tcp',
+      subdomain: kind === 'tcp' ? '' : slug($('f-sub').value), hostname: kind === 'tcp' ? '' : $('f-host').value,
       remote_port: kind === 'tcp' ? (parseInt($('f-port').value, 10) || 0) : 0,
       allow: kind === 'tcp' ? $('f-allow').value : '', spa: kind === 'folder' && $('f-spa').checked
     };
   }
   function resetForm(){
     editing = null;
-    ['f-name','f-target','f-sub','f-host','f-port','f-allow'].forEach(function(id){ $(id).value = ''; });
-    $('f-spa').checked = false; $('f-error').textContent = '';
-    $('form-title').textContent = 'Publish an app'; $('f-publish').textContent = 'Publish';
-    $('f-save').classList.remove('hidden'); $('f-cancel').classList.add('hidden');
+    ['f-name','f-target','f-folder','f-sub','f-host','f-port','f-allow','f-command'].forEach(function(id){ $(id).value = ''; });
+    $('f-command')._edited = false; $('f-spa').checked = false; $('detect-note').textContent = ''; $('f-name').placeholder = 'My app';
+    show($('f-problem'), false);
+    $('form-title').textContent = 'Publish something'; $('f-publish').textContent = 'Publish';
+    show($('f-save'), true); show($('f-cancel'), false);
     setKind('web');
   }
   function submit(start){
-    $('f-error').textContent = '';
+    show($('f-problem'), false);
+    if (kind === 'project' && !$('f-command').value.trim()) { $('f-problem').innerHTML = problemHTML('Tell us how to start this project.', 'Enter the command you normally use to start it, for example npm start.'); show($('f-problem'), true); return; }
     var req = editing ? api('PUT', '/api/apps/' + editing, formApp()) : api('POST', '/api/apps' + (start ? '?start=1' : ''), formApp());
-    req.then(function(){ toast(editing ? 'Saved' : (start ? 'Publishing…' : 'Saved')); resetForm(); refresh(); })
-       .catch(function(e){ $('f-error').textContent = e.message; refresh(); });
+    req.then(function(){ toast(editing ? 'Saved' : (start ? 'Publishing… your address appears below in a moment' : 'Saved')); resetForm(); refresh(); scan(); })
+       .catch(function(e){ $('f-problem').innerHTML = problemHTML(e.message); show($('f-problem'), true); refresh(); });
   }
   $('f-publish').onclick = function(){ submit(true); };
   $('f-save').onclick = function(){ submit(false); };
   $('f-cancel').onclick = resetForm;
 
   function edit(a){
+    resetForm();
     editing = a.id;
     setKind(a.kind || (a.tcp ? 'tcp' : 'web'));
-    $('f-name').value = a.name; $('f-target').value = a.target; $('f-sub').value = a.subdomain || ''; $('f-host').value = a.hostname || '';
+    $('f-name').value = a.name; $('f-sub').value = a.subdomain || ''; $('f-host').value = a.hostname || '';
+    if (a.kind === 'project' || a.kind === 'folder') $('f-folder').value = a.target; else $('f-target').value = a.target;
+    $('f-command').value = a.command || ''; $('f-command')._edited = true;
     $('f-port').value = a.remote_port || ''; $('f-allow').value = a.allow || ''; $('f-spa').checked = !!a.spa;
-    $('form-title').textContent = 'Edit ' + a.name; $('f-publish').textContent = 'Save changes';
-    $('f-save').classList.add('hidden'); $('f-cancel').classList.remove('hidden');
-    preview(); window.scrollTo({top: 0, behavior: 'smooth'});
+    $('form-title').textContent = 'Change "' + a.name + '"'; $('f-publish').textContent = 'Save changes';
+    show($('f-save'), false); show($('f-cancel'), true);
+    preview(); window.scrollTo({top: $('kind').offsetTop - 120, behavior: 'smooth'});
   }
 
-  // ---- settings
-  function showSettings(on){ $('settings').classList.toggle('hidden', !on); if (on) $('s-server').focus(); }
-  $('btn-settings').onclick = function(){ showSettings($('settings').classList.contains('hidden')); };
-  $('s-save').onclick = function(){
-    $('s-result').textContent = '';
-    api('PUT', '/api/settings', {server: $('s-server').value, token: $('s-token').value})
-      .then(function(){ $('s-token').value = ''; toast('Relay saved'); refresh(); testRelay(); })
-      .catch(function(e){ $('s-result').innerHTML = '<span class="err">' + esc(e.message) + '</span>'; });
-  };
-  function testRelay(){
-    $('s-result').textContent = 'Testing…';
-    api('POST', '/api/settings/test').then(function(r){
-      $('s-result').innerHTML = r.ok ? '<span style="color:var(--ok)">✓ Connected, token accepted</span>' : '<span class="err">' + esc(r.error) + '</span>';
+  // ---------------------------------------------------------------- folder picker
+  var pickPath = '';
+  function browse(path){
+    api('GET', '/api/browse?path=' + encodeURIComponent(path || '')).then(function(l){
+      pickPath = l.path; $('pick-path').textContent = l.path + (l.error ? ' (' + l.error + ')' : '');
+      var el = $('pick-dirs'); el.textContent = '';
+      function item(label, p){ var b = document.createElement('button'); b.textContent = label; b.onclick = function(){ browse(p); }; el.appendChild(b); }
+      if (l.parent) item('⬑  Up one level', l.parent);
+      var sep = l.path.indexOf('\\') >= 0 ? '\\' : '/';
+      l.dirs.forEach(function(d){ item('📁  ' + d, l.path.replace(/[\\/]$/, '') + sep + d); });
+      if (!l.dirs.length) { var n = document.createElement('div'); n.className = 'muted small'; n.style.padding = '8px 6px'; n.textContent = 'No folders inside.'; el.appendChild(n); }
     });
   }
-  $('s-test').onclick = testRelay;
+  $('f-browse').onclick = function(){ browse($('f-folder').value); $('picker').showModal(); };
+  $('pick-cancel').onclick = function(){ $('picker').close(); };
+  $('pick-ok').onclick = function(){ $('f-folder').value = pickPath; $('picker').close(); $('f-folder').dispatchEvent(new Event('input')); detect(); };
 
-  // ---- apps list
-  function statusLabel(a){ return {online: 'Online', connecting: 'Connecting…', reconnecting: 'Reconnecting…', error: 'Error', stopped: 'Offline'}[a.status] || a.status; }
+  // ---------------------------------------------------------------- logs
+  function loadLogs(){
+    if (!logsFor) return;
+    api('GET', '/api/apps/' + logsFor.id + '/logs').then(function(r){
+      var body = $('logs-body'), atEnd = body.parentNode.scrollTop + body.parentNode.clientHeight >= body.parentNode.scrollHeight - 20;
+      body.textContent = r.lines.length ? r.lines.join('\n') : 'Nothing yet.';
+      if (atEnd) body.parentNode.scrollTop = body.parentNode.scrollHeight;
+    });
+  }
+  $('logs-close').onclick = function(){ logsFor = null; $('logs').close(); };
+
+  // ---------------------------------------------------------------- apps
+  function statusLabel(a){ return {online: 'Online', connecting: 'Starting…', reconnecting: 'Reconnecting…', error: 'Needs attention', stopped: 'Offline'}[a.status] || a.status; }
+  function kindLabel(k){ return {web: 'App', folder: 'Website', project: 'Project', tcp: 'Service'}[k] || k; }
   function render(){
-    var s = state.settings;
-    $('relay-pill').className = 'pill ' + (s.server ? 's-online' : '');
-    $('relay-text').textContent = s.server ? s.domain : 'No relay configured';
-    if (document.activeElement !== $('s-server')) $('s-server').value = s.server || '';
-    $('s-token').placeholder = s.token_set ? 'saved (leave empty to keep)' : 'relay token';
-    if (!s.server && !$('settings')._shown) { showSettings(true); $('settings')._shown = true; }
+    var s = state.settings, connected = !!s.server;
+    $('relay-pill').className = 'pill ' + (connected ? 's-online' : '');
+    $('relay-text').textContent = connected ? 'Relay: ' + s.domain : 'Not connected';
+    $('s-current').textContent = connected ? 'Connected to ' + s.server + '.' : 'Not connected to a relay yet.';
+    show($('welcome'), !connected);
+    show($('main'), connected);
+    show($('btn-settings'), connected);
+    var apps = state.apps || [];
+    show($('step2'), connected && !apps.length);
     preview();
 
-    var list = $('apps'), apps = state.apps || [];
+    var list = $('apps');
     $('count').textContent = apps.length ? apps.filter(function(a){ return a.status === 'online'; }).length + ' of ' + apps.length + ' online' : '';
-    if (!apps.length) { list.innerHTML = '<div class="empty">Nothing published yet. Add an app above.</div>'; return; }
+    if (!apps.length) { list.innerHTML = '<div class="empty">Nothing published yet. Pick something above.</div>'; return; }
     list.textContent = '';
     apps.forEach(function(a){
       var running = a.status !== 'stopped' && a.status !== 'error';
       var el = document.createElement('div'); el.className = 'app';
       var url = a.public_url ? (a.kind === 'tcp' ? esc(a.public_url.replace('tcp://', '')) : '<a href="' + esc(a.public_url) + '" target="_blank" rel="noopener">' + esc(a.public_url) + '</a>') : '';
-      var local = a.kind === 'folder' ? 'folder ' + esc(a.target) : esc(a.local_addr || a.target) + (a.local_up ? ' · running' : ' · <span style="color:var(--warn)">nothing listening</span>');
+      var local;
+      if (a.kind === 'folder') local = 'Serving the folder ' + esc(a.target);
+      else if (a.kind === 'project') local = (a.local_up ? 'Your project is running' : (running ? 'Your project is starting…' : 'Project in ' + esc(a.target)));
+      else local = a.local_up ? 'Running on this computer (port ' + esc((a.local_addr || '').split(':').pop()) + ')' : '<span style="color:var(--warn)">Not running on this computer right now</span>';
+      var problem = '';
+      if (a.error && a.status !== 'online') problem = '<div class="problem">' + problemHTML(a.error, a.hint, a.detail) + '</div>';
+      else if (running && !a.local_up && a.kind === 'web') problem = '<div class="problem"><b>Your address works, but your app isn\'t running.</b><div>Start your app on port ' + esc((a.local_addr || '').split(':').pop()) + '. Visitors will see it as soon as it\'s running.</div></div>';
       el.innerHTML =
-        '<div class="row"><h3>' + esc(a.name) + '</h3><span class="pill">' + ({web: 'Web', folder: 'Folder', tcp: 'TCP'}[a.kind] || a.kind) + '</span>' +
+        '<div class="row"><h3>' + esc(a.name) + '</h3><span class="pill">' + kindLabel(a.kind) + '</span>' +
         '<span class="pill s-' + esc(a.status) + '"><span class="dot"></span>' + statusLabel(a) + '</span><span class="spacer"></span>' +
-        '<button data-act="' + (running ? 'stop' : 'start') + '"' + (running ? '' : ' class="primary"') + '>' + (running ? 'Stop' : 'Start') + '</button>' +
-        '<button data-act="edit">Edit</button><button data-act="delete" class="danger">Delete</button></div>' +
-        (url ? '<div class="row" style="margin-top:8px"><span class="url">' + url + '</span><button data-act="copy" class="small">Copy</button></div>' : '') +
-        (a.error && a.status !== 'online' ? '<div class="err">' + esc(a.error) + '</div>' : '') +
-        '<div class="meta"><span>Local: ' + local + '</span>' +
+        '<button data-act="' + (running ? 'stop' : 'start') + '"' + (running ? '' : ' class="primary"') + '>' + (running ? 'Take offline' : 'Put online') + '</button>' +
+        (a.kind === 'project' ? '<button data-act="logs">Logs</button>' : '') +
+        '<button data-act="edit">Change</button><button data-act="delete" class="danger">Remove</button></div>' +
+        (url && running ? '<div class="row" style="margin-top:10px"><span class="url">' + url + '</span><button data-act="copy" class="small">Copy address</button></div>' : '') +
+        problem +
+        '<div class="meta"><span>' + local + '</span>' +
         (a.status === 'online' ? '<span>Online for ' + ago(a.online_since) + '</span>' : '') +
-        '<span>' + a.connections + ' connection' + (a.connections === 1 ? '' : 's') + '</span>' +
-        (a.allow ? '<span>Allowed: ' + esc(a.allow) + '</span>' : (a.kind === 'tcp' ? '<span style="color:var(--warn)">Open to everyone</span>' : '')) + '</div>';
+        (a.connections ? '<span>' + a.connections + ' visit' + (a.connections === 1 ? '' : 's') + '</span>' : '') +
+        (a.kind === 'tcp' ? (a.allow ? '<span>Only from ' + esc(a.allow) + '</span>' : '<span style="color:var(--warn)">Anyone can connect</span>') : '') + '</div>';
       el.querySelectorAll('button').forEach(function(b){ b.onclick = function(){ act(b.dataset.act, a); }; });
       list.appendChild(el);
     });
   }
   function act(what, a){
     if (what === 'edit') return edit(a);
+    if (what === 'logs') { logsFor = a; $('logs-title').textContent = 'Logs: ' + a.name; $('logs-body').textContent = 'Loading…'; $('logs').showModal(); loadLogs(); return; }
     if (what === 'copy') {
       var text = a.kind === 'tcp' ? a.public_url.replace('tcp://', '') : a.public_url;
-      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function(){ toast('Copied ' + text); }, function(){ prompt('Copy this address', text); });
+      (navigator.clipboard ? navigator.clipboard.writeText(text) : Promise.reject()).then(function(){ toast('Copied: ' + text); }, function(){ prompt('Copy this address', text); });
       return;
     }
-    if (what === 'delete' && !confirm('Delete "' + a.name + '"? It will go offline.')) return;
+    if (what === 'delete' && !confirm('Remove "' + a.name + '"? It will go offline.')) return;
     var req = what === 'delete' ? api('DELETE', '/api/apps/' + a.id) : api('POST', '/api/apps/' + a.id + '/' + what);
-    req.then(refresh).catch(function(e){ toast(e.message); refresh(); });
+    req.then(function(){ refresh(); if (what !== 'start') scan(); }).catch(function(e){ toast(e.message); refresh(); });
   }
 
+  var scanned = false;
   function refresh(){
-    return api('GET', '/api/state').then(function(s){ state = s; render(); }).catch(function(e){
+    return api('GET', '/api/state').then(function(s){
+      state = s; render();
+      if (s.settings.server && !scanned) { scanned = true; scan(); }
+    }).catch(function(e){
       if (/unauthorized/i.test(e.message)) { var t = prompt('Portal token'); if (t) { token = t; try { localStorage.setItem('portalToken', t); } catch (x) {} } }
-      else toast('Portal not reachable: ' + e.message);
+      else toast('Can\'t reach the portal. Is Universal still running?');
     });
   }
   setKind('web');
   refresh();
   setInterval(refresh, 2000);
+  setInterval(loadLogs, 1500);
+  setInterval(function(){ if (state && state.settings.server && !document.hidden) scan(); }, 15000);
 })();
 </script>
 </body>

@@ -248,6 +248,24 @@ which another site cannot add without a CORS preflight that is never granted, so
 cross-site requests fail. The relay token is never sent back to the browser. Listening
 beyond localhost requires `--token`.
 
+### 2.5.2 Made for non-technical users
+
+The goal is that someone who has never opened a terminal can publish an app. Every
+remaining barrier gets removed:
+
+| Barrier | Solution |
+|---------|----------|
+| Installing needs Go | `release.yml` publishes ready-made binaries for 5 platforms on every `v*` tag. `install.sh` (Linux/macOS) and `install.ps1` (Windows: PATH, Desktop and Start-menu shortcuts) download them, and `install.sh` falls back to building from source |
+| Relay needs a domain and DNS | Without `--domain` the relay detects its public IP (ipify, ifconfig.me or icanhazip) and uses `<ip>.sslip.io`, a free wildcard DNS name, so Let's Encrypt still works. Your own domain stays recommended for production because of shared rate limits |
+| Tokens and URLs to copy | Without `--token` the relay generates one and keeps it in `<state>/relay-token`. A **connection code** `uni1.<base64url {s: server, t: token}>` carries both and tolerates copy-paste whitespace and quotes. The relay prints it at startup; `--show-code` prints it again; the installer shows it at the end. `universal login <code>` and the portal's wizard accept it |
+| Command line at all | `universal` with no arguments (double-click) opens the portal. A second launch just reopens the browser |
+| Knowing ports and paths | The portal finds running apps by probing common ports, recognizing HTTP page titles and well-known database ports, and publishes them with one click. A folder picker means no typed paths |
+| Knowing how to start a project | `Detect` recognizes Node (Vite/Next/start/dev), Django, FastAPI, Flask, Streamlit, plain Python, Go, Docker (using its `EXPOSE` port) and static sites. The portal runs the command in its own process group with `PORT` set and `$PORT` substituted, captures logs, takes the address offline if the project crashes, and kills the whole process tree on stop |
+| Technical errors | `friendly()` maps errors to a plain message and a next step (wrong access code, relay unreachable, name taken, missing program, certificate not ready…). The technical detail stays visible, underneath. A failed connect is not saved |
+| Staying online after a reboot | Start-at-login toggle: a systemd user unit or XDG autostart entry on Linux, a LaunchAgent on macOS, the Startup folder on Windows. Apps that were online are restored |
+
+`docs/GETTING-STARTED.md` is the jargon-free guide for end users.
+
 ### 2.6 Customer setup (one time, about 5 minutes)
 
 1. Get a VM with a public IP (any cloud provider, for example a $5 VPS).
@@ -289,6 +307,7 @@ beyond localhost requires `--token`.
 | M3 | Hosting: relay, expose client, direct serve, autocert, tests | in this change |
 | M3b | TCP tunnels for databases/SSH/any TCP service, with an IP allow-list | in this change |
 | M3c | Portal UI to publish and manage apps without the CLI | in this change |
+| M3d | Beginner mode: zero-config relay (sslip.io + generated token), connection codes, `universal login`, double-click portal, app discovery, project runner with logs, friendly errors, start at login, release binaries + one-line installers, beginner guide | in this change |
 | M4 | Deploy assets (Dockerfile, systemd, install script), README | in this change |
 | M5 (v2) | Browser extension for web chat apps, process/OS-level agent watcher (exec and file events through eBPF/ETW), alert rules (for example "agent ran `rm -rf`"), SQLite backend, multi-user auth | future |
 | M6 (v2) | Wildcard certs through DNS-01, UDP tunnels, per-tunnel basic auth and IP allow-lists for HTTP, usage dashboard for the relay | future |
