@@ -1,0 +1,22 @@
+# /etc/systemd/system/universal-relay.service
+# Edit /etc/universal/relay.env, then: systemctl enable --now universal-relay
+[Unit]
+Description=Universal tunnel relay
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+EnvironmentFile=/etc/universal/relay.env
+ExecStart=/usr/local/bin/universal relay --certs /var/lib/universal/certs
+User=universal
+AmbientCapabilities=CAP_NET_BIND_SERVICE
+Restart=always
+RestartSec=2
+StateDirectory=universal
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

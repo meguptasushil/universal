@@ -1,0 +1,20 @@
+# /etc/systemd/system/universal-monitor.service
+# Edit /etc/universal/monitor.env, then: systemctl enable --now universal-monitor
+[Unit]
+Description=Universal AI agent monitor
+After=network-online.target
+
+[Service]
+EnvironmentFile=-/etc/universal/monitor.env
+ExecStart=/usr/local/bin/universal monitor --data /var/lib/universal/monitor
+User=universal
+Restart=always
+RestartSec=2
+StateDirectory=universal
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+
+[Install]
+WantedBy=multi-user.target

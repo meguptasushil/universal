@@ -1,0 +1,184 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Agent Monitor</title>
+<style>
+:root{--bg:#f6f7f9;--panel:#fff;--fg:#1d2330;--muted:#6b7385;--line:#e3e6ec;--accent:#2f6fed;--err:#c93a3a;--ok:#1f8a5b;--tool:#8a4fd8}
+@media (prefers-color-scheme:dark){:root{--bg:#0f1218;--panel:#171b23;--fg:#e6e9ef;--muted:#8d95a7;--line:#262c38;--accent:#6d9bff;--err:#ff7272;--ok:#4cc38a;--tool:#b48cff}}
+*{box-sizing:border-box}body{margin:0;background:var(--bg);color:var(--fg);font:14px/1.45 system-ui,-apple-system,Segoe UI,Roboto,sans-serif}
+header{display:flex;gap:12px;align-items:center;padding:12px 16px;border-bottom:1px solid var(--line);background:var(--panel);position:sticky;top:0;z-index:2;flex-wrap:wrap}
+header h1{font-size:16px;margin:0 8px 0 0}
+input,select,button{font:inherit;color:inherit;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:5px 8px}
+button{cursor:pointer}
+.live{font-size:12px;color:var(--muted)}.live b{color:var(--ok)}
+main{display:grid;grid-template-columns:minmax(0,1fr) 300px;gap:16px;padding:16px;max-width:1500px;margin:0 auto}
+@media (max-width:900px){main{grid-template-columns:minmax(0,1fr)}}
+.card{background:var(--panel);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.card h2{font-size:13px;margin:0;padding:10px 12px;border-bottom:1px solid var(--line);color:var(--muted);text-transform:uppercase;letter-spacing:.04em}
+.tiles{display:grid;grid-template-columns:repeat(4,1fr);gap:12px;margin-bottom:16px}
+@media (max-width:600px){.tiles{grid-template-columns:repeat(2,1fr)}}
+.tile{padding:12px}.tile .v{font-size:22px;font-weight:600;font-variant-numeric:tabular-nums}.tile .k{color:var(--muted);font-size:12px}
+table{width:100%;border-collapse:collapse}
+th,td{text-align:left;padding:7px 10px;border-bottom:1px solid var(--line);vertical-align:top}
+th{font-size:12px;color:var(--muted);font-weight:500}
+tbody tr{cursor:pointer}tbody tr:hover{background:var(--bg)}
+td.num{text-align:right;font-variant-numeric:tabular-nums;white-space:nowrap}
+.feed{overflow-x:auto}
+.sum{max-width:520px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;color:var(--muted)}
+.pill{display:inline-block;padding:1px 7px;border-radius:999px;font-size:12px;border:1px solid var(--line);white-space:nowrap}
+.k-llm_call{color:var(--accent)}.k-tool_use{color:var(--tool)}.k-prompt{color:var(--ok)}
+.err{color:var(--err)}
+.tool{color:var(--tool);font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.side .row{display:flex;justify-content:space-between;padding:6px 12px;border-bottom:1px solid var(--line);gap:8px}
+.side .row span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side .row:last-child{border-bottom:0}.side .card{margin-bottom:16px}.muted{color:var(--muted)}
+dialog{max-width:900px;width:calc(100% - 32px);border:1px solid var(--line);border-radius:10px;background:var(--panel);color:var(--fg);padding:0}
+dialog::backdrop{background:#0008}
+dialog header{position:static}
+dialog .body{padding:16px;max-height:75vh;overflow:auto}
+pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;font:12px/1.5 ui-monospace,Menlo,monospace;margin:4px 0 14px}
+.empty{padding:28px;text-align:center;color:var(--muted)}
+code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+</style>
+</head>
+<body>
+<header>
+  <h1>Agent Monitor</h1>
+  <select id="f-agent"><option value="">All agents</option></select>
+  <select id="f-provider"><option value="">All providers</option></select>
+  <select id="f-kind">
+    <option value="">All activity</option><option value="llm_call">Model calls</option>
+    <option value="tool_use">Tool use</option><option value="prompt">Prompts</option>
+    <option value="session">Sessions</option><option value="custom">Custom</option>
+  </select>
+  <input id="f-q" placeholder="Search prompts, responses, tools…" size="28">
+  <span class="live" id="live">connecting…</span>
+</header>
+<main>
+  <section>
+    <div class="tiles">
+      <div class="card tile"><div class="v" id="t-events">0</div><div class="k">Events</div></div>
+      <div class="card tile"><div class="v" id="t-calls">0</div><div class="k">Model calls</div></div>
+      <div class="card tile"><div class="v" id="t-tools">0</div><div class="k">Tool calls</div></div>
+      <div class="card tile"><div class="v" id="t-tokens">0</div><div class="k">Tokens (in / out)</div></div>
+    </div>
+    <div class="card feed">
+      <h2>Activity</h2>
+      <table>
+        <thead><tr><th>Time</th><th>Agent</th><th>Kind</th><th>Model</th><th>Summary</th><th class="num">Tokens</th><th class="num">ms</th></tr></thead>
+        <tbody id="rows"></tbody>
+      </table>
+      <div class="empty" id="empty">No activity yet. Point an agent at this monitor. See <code>/api/upstreams</code> and the README.</div>
+    </div>
+  </section>
+  <aside class="side">
+    <div class="card"><h2>Agents</h2><div id="s-agents"></div></div>
+    <div class="card"><h2>Models</h2><div id="s-models"></div></div>
+    <div class="card"><h2>Tools used</h2><div id="s-tools"></div></div>
+  </aside>
+</main>
+<dialog id="detail"><header><h1 id="d-title">Event</h1><span style="flex:1"></span><button id="d-close">Close</button></header><div class="body" id="d-body"></div></dialog>
+<script>
+(function(){
+  var params = new URLSearchParams(location.search);
+  var token = params.get('token') || '';
+  try { if (token) localStorage.setItem('monitorToken', token); else token = localStorage.getItem('monitorToken') || ''; } catch (e) {}
+  var $ = function(id){ return document.getElementById(id); };
+  var events = [], MAX = 500;
+  var nf = new Intl.NumberFormat();
+
+  function api(path){
+    var sep = path.indexOf('?') < 0 ? '?' : '&';
+    return path + (token ? sep + 'token=' + encodeURIComponent(token) : '');
+  }
+  function filters(){
+    var p = new URLSearchParams();
+    ['agent','provider','kind','q'].forEach(function(k){ var v = $('f-'+k).value; if (v) p.set(k, v); });
+    return p.toString();
+  }
+  function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+  function summary(e){
+    if (e.error) return '<span class="err">'+esc(e.error)+'</span>';
+    var tools = (e.tool_calls||[]).map(function(t){ return '<span class="tool">'+esc(t.name)+'</span>'; }).join(' ');
+    var text = e.kind === 'tool_use' ? (e.tool_calls && e.tool_calls[0] ? e.tool_calls[0].input : '') : (e.response || e.prompt || e.path || '');
+    return (tools ? tools + ' ' : '') + esc(String(text).slice(0, 200));
+  }
+  function row(e){
+    var tr = document.createElement('tr');
+    var t = new Date(e.time);
+    var tok = (e.input_tokens||e.output_tokens) ? nf.format(e.input_tokens||0)+' / '+nf.format(e.output_tokens||0) : '';
+    tr.innerHTML = '<td class="muted" title="'+esc(t.toISOString())+'">'+esc(t.toLocaleTimeString())+'</td>'+
+      '<td>'+esc(e.agent)+'</td>'+
+      '<td><span class="pill k-'+esc(e.kind)+'">'+esc(e.kind.replace('_',' '))+'</span></td>'+
+      '<td class="muted">'+esc(e.model||e.provider||'')+'</td>'+
+      '<td class="sum">'+summary(e)+'</td>'+
+      '<td class="num">'+tok+'</td><td class="num muted">'+(e.latency_ms||'')+'</td>';
+    tr.onclick = function(){ show(e); };
+    return tr;
+  }
+  function render(){
+    var tb = $('rows'); tb.textContent = '';
+    events.forEach(function(e){ tb.appendChild(row(e)); });
+    $('empty').style.display = events.length ? 'none' : '';
+  }
+  function show(e){
+    $('d-title').textContent = e.agent + ' · ' + e.kind.replace('_',' ');
+    var h = '<p class="muted">'+esc(new Date(e.time).toString())+' · '+esc(e.source)+(e.provider?' · '+esc(e.provider):'')+(e.model?' · '+esc(e.model):'')+(e.status?' · HTTP '+e.status:'')+(e.latency_ms?' · '+e.latency_ms+' ms':'')+(e.session?' · session '+esc(e.session):'')+'</p>';
+    if (e.error) h += '<h3 class="err">Error</h3><pre>'+esc(e.error)+'</pre>';
+    if (e.prompt) h += '<h3>Prompt</h3><pre>'+esc(e.prompt)+'</pre>';
+    (e.tool_calls||[]).forEach(function(t){ h += '<h3>Tool: <span class="tool">'+esc(t.name)+'</span></h3><pre>'+esc(t.input||'')+'</pre>'; });
+    if (e.response) h += '<h3>'+(e.kind==='tool_use'?'Tool output':'Response')+'</h3><pre>'+esc(e.response)+'</pre>';
+    h += '<h3>Raw event</h3><pre>'+esc(JSON.stringify(e, null, 2))+'</pre>';
+    $('d-body').innerHTML = h;
+    $('detail').showModal();
+  }
+  $('d-close').onclick = function(){ $('detail').close(); };
+
+  function list(el, items, fmt){
+    el.innerHTML = items.length ? items.slice(0, 12).map(function(c){ return '<div class="row"><span title="'+esc(c.key)+'">'+esc(c.key)+'</span><span class="muted">'+fmt(c)+'</span></div>'; }).join('') : '<div class="row muted">none yet</div>';
+  }
+  function loadStats(){
+    fetch(api('/api/stats?'+filters())).then(function(r){ if (r.status === 401) throw new Error('auth'); return r.json(); }).then(function(s){
+      var calls=0, tools=0, tin=0, tout=0;
+      s.agents.forEach(function(a){ calls+=a.llm_calls; tools+=a.tool_calls; tin+=a.input_tokens; tout+=a.output_tokens; });
+      $('t-events').textContent = nf.format(s.total); $('t-calls').textContent = nf.format(calls);
+      $('t-tools').textContent = nf.format(tools); $('t-tokens').textContent = nf.format(tin)+' / '+nf.format(tout);
+      list($('s-agents'), s.agents, function(c){ return nf.format(c.events)+' events'; });
+      list($('s-models'), s.models, function(c){ return nf.format(c.llm_calls)+' calls'; });
+      list($('s-tools'), s.tools, function(c){ return nf.format(c.tool_calls)+'×'; });
+      fillSelect('f-agent', s.agents); fillSelect('f-provider', s.providers);
+    }).catch(function(err){ if (err.message === 'auth') { var t = prompt('Monitor token'); if (t) { token = t; try{localStorage.setItem('monitorToken', t);}catch(e){} reload(); } } });
+  }
+  function fillSelect(id, items){
+    var sel = $(id), cur = sel.value, have = {};
+    Array.prototype.forEach.call(sel.options, function(o){ have[o.value] = 1; });
+    items.forEach(function(c){ if (!have[c.key]) { var o = document.createElement('option'); o.value = o.textContent = c.key; sel.appendChild(o); } });
+    sel.value = cur;
+  }
+  var es, statsTimer;
+  function reload(){
+    fetch(api('/api/events?limit='+MAX+'&'+filters())).then(function(r){ return r.ok ? r.json() : []; }).then(function(list){ events = list || []; render(); });
+    loadStats();
+    if (es) es.close();
+    es = new EventSource(api('/api/stream?'+filters()));
+    es.onopen = function(){ $('live').innerHTML = '<b>●</b> live'; };
+    es.onerror = function(){ $('live').textContent = 'reconnecting…'; };
+    es.onmessage = function(m){
+      var e = JSON.parse(m.data);
+      events.unshift(e); if (events.length > MAX) events.pop();
+      var tb = $('rows'); tb.insertBefore(row(e), tb.firstChild);
+      if (tb.children.length > MAX) tb.removeChild(tb.lastChild);
+      $('empty').style.display = 'none';
+      clearTimeout(statsTimer); statsTimer = setTimeout(loadStats, 500);
+    };
+  }
+  var qTimer;
+  ['f-agent','f-provider','f-kind'].forEach(function(id){ $(id).onchange = reload; });
+  $('f-q').oninput = function(){ clearTimeout(qTimer); qTimer = setTimeout(reload, 300); };
+  reload();
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,8 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [{ "hooks": [{ "type": "command", "command": "curl -s -m 2 -H 'Content-Type: application/json' -H \"Authorization: Bearer $UNIVERSAL_MONITOR_TOKEN\" --data-binary @- http://127.0.0.1:8787/api/ingest >/dev/null || true" }] }],
+    "PreToolUse":       [{ "matcher": "*", "hooks": [{ "type": "command", "command": "curl -s -m 2 -H 'Content-Type: application/json' -H \"Authorization: Bearer $UNIVERSAL_MONITOR_TOKEN\" --data-binary @- http://127.0.0.1:8787/api/ingest >/dev/null || true" }] }],
+    "PostToolUse":      [{ "matcher": "*", "hooks": [{ "type": "command", "command": "curl -s -m 2 -H 'Content-Type: application/json' -H \"Authorization: Bearer $UNIVERSAL_MONITOR_TOKEN\" --data-binary @- http://127.0.0.1:8787/api/ingest >/dev/null || true" }] }],
+    "Stop":             [{ "hooks": [{ "type": "command", "command": "curl -s -m 2 -H 'Content-Type: application/json' -H \"Authorization: Bearer $UNIVERSAL_MONITOR_TOKEN\" --data-binary @- http://127.0.0.1:8787/api/ingest >/dev/null || true" }] }]
+  }
+}
