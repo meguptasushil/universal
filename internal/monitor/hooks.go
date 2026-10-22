@@ -10,6 +10,8 @@ import (
 type hookPayload struct {
 	HookEventName  string          `json:"hook_event_name"`
 	SessionID      string          `json:"session_id"`
+	AgentID        string          `json:"agent_id"`
+	AgentType      string          `json:"agent_type"`
 	Cwd            string          `json:"cwd"`
 	TranscriptPath string          `json:"transcript_path"`
 	ToolName       string          `json:"tool_name"`
@@ -85,8 +87,12 @@ func eventFromHook(h hookPayload, agent string) Event {
 	}
 	e := Event{
 		Agent:   agent,
+		AgentID: h.AgentID,
 		Session: h.SessionID,
 		Meta:    map[string]any{"hook": h.HookEventName},
+	}
+	if h.AgentType != "" {
+		e.Meta["agent_type"] = h.AgentType
 	}
 	if h.Cwd != "" {
 		e.Meta["cwd"] = h.Cwd

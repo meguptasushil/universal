@@ -86,6 +86,8 @@ type reqInfo struct {
 	Stream       bool
 	Prompt       string
 	ToolsOffered int
+	User         string
+	Session      string
 }
 
 // respInfo is what we extract from a model response.
@@ -187,6 +189,7 @@ func parseRequest(format, path string, body []byte) reqInfo {
 	switch format {
 	case FormatAnthropic:
 		ri.Model, ri.Stream = str(o["model"]), o["stream"] == true
+		ri.User, ri.Session = parseAnthropicUserID(str(m(o["metadata"])["user_id"]))
 		ri.Prompt = lastUser(arr(o["messages"]), "role", "content")
 		ri.ToolsOffered = len(arr(o["tools"]))
 	case FormatGemini:
@@ -205,6 +208,8 @@ func parseRequest(format, path string, body []byte) reqInfo {
 		}
 	default: // OpenAI-compatible
 		ri.Model, ri.Stream = str(o["model"]), o["stream"] == true
+		ri.User = firstNonEmpty(str(o["user"]), str(o["safety_identifier"]))
+		ri.Session = str(o["prompt_cache_key"]) // Codex sends its conversation id here
 		ri.ToolsOffered = len(arr(o["tools"])) + len(arr(o["functions"]))
 		switch {
 		case o["messages"] != nil:
@@ -224,6 +229,38 @@ func parseRequest(format, path string, body []byte) reqInfo {
 		}
 	}
 	return ri
+}
+
+// parseAnthropicUserID understands Claude Code's metadata.user_id, either
+// "user_<hash>_account_<uuid>_session_<uuid>" or a JSON object, and falls back
+// to treating the whole value as the user.
+func parseAnthropicUserID(id string) (user, session string) {
+	if id == "" {
+		return "", ""
+	}
+	if strings.HasPrefix(id, "{") {
+		var o obj
+		if json.Unmarshal([]byte(id), &o) == nil {
+			user = firstNonEmpty(str(o["account_uuid"]), str(o["user_id"]), str(o["device_id"]))
+			if user != "" && str(o["account_uuid"]) != "" {
+				user = "account_" + user
+			}
+			return user, str(o["session_id"])
+		}
+	}
+	if i := strings.Index(id, "_session_"); i >= 0 {
+		id, session = id[:i], id[i+len("_session_"):]
+	}
+	if i := strings.Index(id, "_account_"); i >= 0 {
+		if acct := id[i+len("_account_"):]; acct != "" {
+			return "account_" + acct, session
+		}
+		id = id[:i]
+	}
+	if strings.HasPrefix(id, "user_") && len(id) > len("user_")+12 {
+		id = id[:len("user_")+12] // a long device hash; a prefix is enough to tell users apart
+	}
+	return id, session
 }
 
 func geminiModel(path string) string {

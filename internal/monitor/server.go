@@ -87,17 +87,40 @@ func filterFrom(r *http.Request) Filter {
 		Provider: q.Get("provider"),
 		Kind:     q.Get("kind"),
 		Model:    q.Get("model"),
+		AgentID:  q.Get("agent_id"),
+		User:     q.Get("user"),
+		Session:  q.Get("session"),
+		KeyID:    q.Get("key_id"),
 		Query:    q.Get("q"),
 	}
 	f.Limit, _ = strconv.Atoi(q.Get("limit"))
 	if s := q.Get("since"); s != "" {
-		if d, err := time.ParseDuration(s); err == nil {
-			f.Since = time.Now().Add(-d)
-		} else if t, err := time.Parse(time.RFC3339, s); err == nil {
-			f.Since = t
-		}
+		f.Since, _ = ParseSince(s)
 	}
 	return f
+}
+
+// ParseSince accepts a look-back duration ("30m", "24h", "7d"), an RFC 3339
+// timestamp or a date ("2026-10-01").
+func ParseSince(s string) (time.Time, error) {
+	if s == "" {
+		return time.Time{}, nil
+	}
+	if days, ok := strings.CutSuffix(s, "d"); ok {
+		if n, err := strconv.Atoi(days); err == nil {
+			return time.Now().AddDate(0, 0, -n), nil
+		}
+	}
+	if d, err := time.ParseDuration(s); err == nil {
+		return time.Now().Add(-d), nil
+	}
+	if t, err := time.Parse(time.RFC3339, s); err == nil {
+		return t, nil
+	}
+	if t, err := time.ParseInLocation("2006-01-02", s, time.Local); err == nil {
+		return t, nil
+	}
+	return time.Time{}, fmt.Errorf("invalid time %q (use e.g. 24h, 7d, 2026-10-01)", s)
 }
 
 func (s *Server) api(w http.ResponseWriter, r *http.Request, p string) {
@@ -114,6 +137,25 @@ func (s *Server) api(w http.ResponseWriter, r *http.Request, p string) {
 		writeJSON(w, e)
 	case p == "/stats":
 		writeJSON(w, store.Stats(filterFrom(r)))
+	case p == "/report":
+		// ?format=text|json|csv&recent=N (N<0: all events in memory)
+		recent := 20
+		if n, err := strconv.Atoi(r.URL.Query().Get("recent")); err == nil {
+			recent = n
+		}
+		rep := store.Report(filterFrom(r), recent)
+		switch r.URL.Query().Get("format") {
+		case "text":
+			w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+			_ = rep.WriteText(w, 0)
+		case "csv":
+			w.Header().Set("Content-Type", "text/csv; charset=utf-8")
+			w.Header().Set("Content-Disposition", `attachment; filename="agent-activity.csv"`)
+			_ = rep.WriteCSV(w)
+		default:
+			w.Header().Set("Content-Type", "application/json")
+			_ = rep.WriteJSON(w)
+		}
 	case p == "/upstreams":
 		type up struct {
 			Name   string `json:"name"`

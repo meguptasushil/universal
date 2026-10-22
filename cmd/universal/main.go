@@ -8,9 +8,11 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log/slog"
 	"net"
 	"net/http"
@@ -21,6 +23,7 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/meguptasushil/universal/internal/hosting"
 	"github.com/meguptasushil/universal/internal/monitor"
@@ -32,6 +35,7 @@ const usage = `universal: monitor AI agents and host anything on the internet
 
 Usage:
   universal monitor [flags]                 AI agent monitor: LLM gateway + live dashboard
+  universal report  [--since 24h] [flags]   agent activity report: agents, IDs, sessions, tools
   universal relay   --domain D --token T    public relay for tunnels (run on a cloud VM)
   universal expose  <port|host:port|dir>    publish a local website/API or folder via a relay
   universal expose  5432 --tcp              publish any TCP service (database, SSH, Redis...)
@@ -55,6 +59,8 @@ func main() {
 	switch cmd {
 	case "monitor":
 		err = runMonitor(ctx, log, args)
+	case "report":
+		err = runReport(ctx, args)
 	case "relay":
 		err = runRelay(ctx, log, args)
 	case "expose":
@@ -163,9 +169,141 @@ func runMonitor(ctx context.Context, log *slog.Logger, args []string) error {
     Gemini CLI / Google GenAI     export GOOGLE_GEMINI_BASE_URL=%s/gemini
     Any provider, named agent     %s/a/<agent-name>/<provider>/...
   Hooks / custom events:          POST %s/api/ingest
+  Identify instances (optional):  headers X-Agent-Id, X-Agent-User, X-Agent-Session
+  Reports:                        universal report --since 24h
 
 `, dash, base, base, base, base, base)
 	return hosting.ServePlain(ctx, srv, *listen)
+}
+
+// ---------------------------------------------------------------- report
+
+func runReport(ctx context.Context, args []string) error {
+	fs := flag.NewFlagSet("report", flag.ContinueOnError)
+	dataDir := fs.String("data", env("UNIVERSAL_MONITOR_DATA", "./monitor-data"), "monitor data directory to read")
+	server := fs.String("server", env("UNIVERSAL_MONITOR_URL", ""), "read from a running monitor instead, e.g. http://127.0.0.1:8787")
+	token := fs.String("token", env("UNIVERSAL_MONITOR_TOKEN", ""), "monitor token (with --server)")
+	since := fs.String("since", "", "only activity after this: 30m, 24h, 7d or 2026-10-01")
+	format := fs.String("format", "text", "text, json or csv (csv lists every matching event)")
+	out := fs.String("out", "", "write the report to this file instead of stdout")
+	recent := fs.Int("recent", 20, "number of recent events to list")
+	limit := fs.Int("limit", 20, "maximum rows per table")
+	watch := fs.Duration("watch", 0, "refresh the report every interval, e.g. 5s (text only)")
+	var f monitor.Filter
+	fs.StringVar(&f.Agent, "agent", "", "only this agent (e.g. claude-code)")
+	fs.StringVar(&f.AgentID, "agent-id", "", "only this agent instance ID")
+	fs.StringVar(&f.User, "user", "", "only this user/account ID")
+	fs.StringVar(&f.KeyID, "key", "", "only this API key fingerprint (as shown in the report)")
+	fs.StringVar(&f.Session, "session", "", "only this session")
+	fs.StringVar(&f.Provider, "provider", "", "only this provider")
+	fs.StringVar(&f.Model, "model", "", "only this model")
+	fs.StringVar(&f.Kind, "kind", "", "only this kind: llm_call, tool_use, prompt, session, custom")
+	fs.StringVar(&f.Query, "q", "", "only events containing this text")
+	if _, err := parse(fs, args); err != nil {
+		return err
+	}
+	var err error
+	if f.Since, err = monitor.ParseSince(*since); err != nil {
+		return err
+	}
+	if *format != "text" && *format != "json" && *format != "csv" {
+		return fmt.Errorf("unknown --format %q", *format)
+	}
+	n := *recent
+	if *format == "csv" {
+		n = -1
+	}
+
+	render := func() error {
+		rep, err := loadReport(ctx, *dataDir, *server, *token, f, n)
+		if err != nil {
+			return err
+		}
+		w := io.Writer(os.Stdout)
+		if *out != "" {
+			file, err := os.Create(*out)
+			if err != nil {
+				return err
+			}
+			defer file.Close()
+			w = file
+		}
+		switch *format {
+		case "json":
+			return rep.WriteJSON(w)
+		case "csv":
+			return rep.WriteCSV(w)
+		}
+		return rep.WriteText(w, *limit)
+	}
+	if *watch <= 0 || *format != "text" || *out != "" {
+		return render()
+	}
+	tick := time.NewTicker(*watch)
+	defer tick.Stop()
+	for {
+		fmt.Print("\033[H\033[2J") // clear the terminal
+		if err := render(); err != nil {
+			return err
+		}
+		select {
+		case <-ctx.Done():
+			return nil
+		case <-tick.C:
+		}
+	}
+}
+
+// loadReport reads the monitor's event log, or asks a running monitor. With
+// neither given explicitly it falls back to a monitor on the default address.
+func loadReport(ctx context.Context, dataDir, server, token string, f monitor.Filter, recent int) (monitor.Report, error) {
+	if server == "" {
+		events, err := monitor.LoadEvents(dataDir)
+		if err == nil {
+			return monitor.BuildReport(events, f, recent), nil
+		}
+		if !errors.Is(err, os.ErrNotExist) {
+			return monitor.Report{}, err
+		}
+		rep, srvErr := fetchReport(ctx, "http://127.0.0.1:8787", token, f, recent)
+		if srvErr != nil {
+			return monitor.Report{}, fmt.Errorf("no event log in %s and no monitor running on 127.0.0.1:8787; "+
+				"start one with \"universal monitor\", or pass --data or --server", dataDir)
+		}
+		return rep, nil
+	}
+	return fetchReport(ctx, server, token, f, recent)
+}
+
+func fetchReport(ctx context.Context, server, token string, f monitor.Filter, recent int) (monitor.Report, error) {
+	q := url.Values{"format": {"json"}, "recent": {strconv.Itoa(recent)}}
+	for k, v := range map[string]string{"agent": f.Agent, "agent_id": f.AgentID, "user": f.User, "key_id": f.KeyID,
+		"session": f.Session, "provider": f.Provider, "model": f.Model, "kind": f.Kind, "q": f.Query} {
+		if v != "" {
+			q.Set(k, v)
+		}
+	}
+	if !f.Since.IsZero() {
+		q.Set("since", f.Since.Format(time.RFC3339))
+	}
+	req, err := http.NewRequestWithContext(ctx, "GET", strings.TrimSuffix(server, "/")+"/api/report?"+q.Encode(), nil)
+	if err != nil {
+		return monitor.Report{}, err
+	}
+	if token != "" {
+		req.Header.Set("Authorization", "Bearer "+token)
+	}
+	cl := &http.Client{Timeout: 15 * time.Second}
+	resp, err := cl.Do(req)
+	if err != nil {
+		return monitor.Report{}, err
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		return monitor.Report{}, fmt.Errorf("monitor answered %s (wrong --token?)", resp.Status)
+	}
+	var rep monitor.Report
+	return rep, json.NewDecoder(resp.Body).Decode(&rep)
 }
 
 // ---------------------------------------------------------------- relay

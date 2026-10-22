@@ -52,6 +52,46 @@ input and output tokens, latency, HTTP status and errors. This works for OpenAI 
 Completions and Responses API, Anthropic Messages and Gemini `generateContent`, in both
 JSON and streaming form.
 
+### Tracking agents across IDs
+
+Every event records *who* made it, so you can see when the same agent runs as
+several instances, for several users, or with several API keys:
+
+| Field | Where it comes from |
+|---|---|
+| `agent_id`: agent instance | `X-Agent-Id` header, or the subagent `agent_id` in Claude Code hooks |
+| `user`: user or account | `X-Agent-User` header, Claude Code's account id (`metadata.user_id`), OpenAI `user` / `safety_identifier` |
+| `key_id`: API key fingerprint | computed from the key the call used, e.g. `…Wxyz#3f9a1c2b` (the last 4 characters plus a hash; the key itself is never stored) |
+| `session` | `X-Agent-Session` header, Claude Code session id, Codex conversation id (`prompt_cache_key`), hook `session_id` |
+
+The `X-Agent-*` headers are stripped before the call reaches the provider. When an agent
+shows up under more than one key, account or instance ID, the dashboard and the report
+flag it.
+
+### Reports
+
+```sh
+universal report                         # everything in ./monitor-data
+universal report --since 24h             # last day (also 30m, 7d, 2026-10-01)
+universal report --agent claude-code --session <id>
+universal report --key '…Wxyz#3f9a1c2b'  # everything one API key did
+universal report --watch 5s              # live, refreshing in the terminal
+universal report --format csv --out activity.csv   # every event, for spreadsheets
+universal report --format json           # for scripts
+universal report --server https://monitor.example.com --token T   # a remote monitor
+```
+
+The report shows:
+- totals and alerts (for example "codex ran under 2 API keys"),
+- **agents**, with how many instance IDs, users, keys and sessions each one used,
+- **identities**, one row per agent × instance × user × key combination,
+- **sessions**, with duration and top tools,
+- models, tools, and recent activity.
+
+It reads the event log directly, so it also works when the monitor is stopped. If there
+is no log, it asks a monitor running on `127.0.0.1:8787`. The same report is available
+over HTTP at `/api/report?format=text|json|csv`.
+
 ### Hooks: see what the agent actually executes
 
 The gateway shows what the model *asked for*. Hooks report what the agent *ran*. To use
@@ -70,9 +110,10 @@ curl -X POST http://127.0.0.1:8787/api/ingest -H "Authorization: Bearer $TOKEN" 
 
 | Endpoint | Purpose |
 |---|---|
-| `GET /api/events?agent=&provider=&kind=&model=&q=&since=1h&limit=` | Search events, newest first |
+| `GET /api/events?agent=&agent_id=&user=&key_id=&session=&provider=&kind=&model=&q=&since=1h&limit=` | Search events, newest first |
 | `GET /api/events/{id}` | One event |
-| `GET /api/stats` | Totals per agent, provider, model and tool |
+| `GET /api/stats` | Totals per agent, identity, session, user, API key, provider, model and tool |
+| `GET /api/report?format=text\|json\|csv&recent=N` | The `universal report` output (same filters) |
 | `GET /api/stream` | Live Server-Sent Events feed (same filters) |
 | `POST /api/ingest` | Push an event, a list of events, or a hook payload |
 

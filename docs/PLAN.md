@@ -70,7 +70,8 @@ posts to `/api/ingest` is planned for v2.
 | `event.go` | `Event` model: id, time, source, agent, provider, model, kind, status, latency, input/output tokens, prompt, response, tool calls, error, metadata |
 | `providers.go` | Upstream registry (`openai`, `anthropic`, `gemini`, plus custom ones from `--upstream name=url`) and parsers for each wire format, both JSON and SSE streaming: OpenAI Chat Completions + Responses API, Anthropic Messages, Gemini `generateContent` / `streamGenerateContent` |
 | `proxy.go` | `httputil.ReverseProxy` per upstream. Tees the request body and wraps the response body so the event is recorded when the stream ends. Streaming is not buffered: `FlushInterval=-1` keeps token-by-token output intact |
-| `store.go` | Thread-safe ring buffer (default 10k events), append-only JSONL persistence, reload on start, filtered queries, stats aggregation, pub/sub for live streaming |
+| `store.go` | Thread-safe ring buffer (default 10k events), append-only JSONL persistence, reload on start, filtered queries, stats aggregation (agents, identities, sessions, users, keys, models, tools), pub/sub for live streaming |
+| `report.go` | Report model, alerts for agents running under multiple IDs, and text/JSON/CSV renderers shared by `universal report` and `/api/report` |
 | `server.go` | HTTP routes: the proxy (`/{provider}/...`), `/api/events`, `/api/stats`, `/api/stream` (Server-Sent Events), `/api/ingest`, `/healthz`, and the dashboard (`/`) |
 | `hooks.go` | Adapter that turns Claude Code hook payloads (`PreToolUse`, `PostToolUse`, `UserPromptSubmit`, `Stop`, ...) into events |
 | `dashboard.html` | Embedded single-page UI with no external CDN: live feed, filters, per-agent, per-model and per-tool stats, an event detail panel |
@@ -83,6 +84,34 @@ The monitor picks the agent's name from the first of these that is set:
 2. the URL prefix form `/a/<agent>/<provider>/...`, so you can name an agent without adding headers,
 3. a known `User-Agent` signature (`claude-cli`, `codex`, `GeminiCLI`, `OpenAI/Python`, `Anthropic/JS`, ...),
 4. otherwise `unknown@<client-ip>`.
+
+### 1.4.1 Identities: the same agent under different IDs
+
+Beyond the agent *name*, every event carries four identity fields. Together they show
+when one agent runs as several instances, for several people, or with several keys:
+
+| Field | Sources (first match wins) |
+|-------|----------------------------|
+| `agent_id` (instance) | `X-Agent-Id` header; `agent_id` in hook payloads (Claude Code subagents) |
+| `user` (user/account) | `X-Agent-User`; Anthropic `metadata.user_id` (Claude Code: `user_<hash>_account_<uuid>_session_<uuid>` or JSON); OpenAI `user` / `safety_identifier` |
+| `key_id` (credential) | Fingerprint of the API key or OAuth token: last 4 characters + 8 hex chars of SHA-256. The key is never stored |
+| `session` | `X-Agent-Session` / `X-Session-Id` / `session_id` headers; the Claude Code session in `metadata.user_id`; OpenAI `prompt_cache_key` (Codex conversation id); hook `session_id` |
+
+The `X-Agent-*` headers are removed before forwarding. Aggregations add **agents** (with
+distinct counts of instance IDs, users, keys and sessions), **identities** (agent ×
+agent_id × user × key) and **sessions** (duration, top tools). An agent seen with more than
+one key, user or instance ID raises an alert in the dashboard and the report.
+
+### 1.4.2 Reports (`universal report`)
+
+* Reads `events.jsonl` directly, so it is complete and works while the monitor is stopped.
+  It can also query a running monitor (`--server`, `GET /api/report`). With no log present
+  it falls back to `127.0.0.1:8787`.
+* Filters: `--since` (30m / 24h / 7d / date), `--agent`, `--agent-id`, `--user`, `--key`,
+  `--session`, `--provider`, `--model`, `--kind`, `--q`.
+* Output: aligned terminal tables (alerts, agents, identities, sessions, models, tools,
+  recent activity), `--format json` for scripts, and `--format csv` with one row per event
+  for spreadsheets. `--watch 5s` refreshes it live, and `--out` writes it to a file.
 
 ### 1.5 Security and privacy
 
@@ -238,6 +267,7 @@ universal serve  (--dir ./public | --proxy http://localhost:3000)
 |---|-------------|--------|
 | M1 | Module skeleton, CLI dispatcher | in this change |
 | M2 | Monitor: proxy, parsers, store, API, dashboard, hook ingest, tests | in this change |
+| M2b | Identity tracking (agent ID, user, API key fingerprint, session), multi-ID alerts, `universal report` CLI | in this change |
 | M3 | Hosting: relay, expose client, direct serve, autocert, tests | in this change |
 | M3b | TCP tunnels for databases/SSH/any TCP service, with an IP allow-list | in this change |
 | M4 | Deploy assets (Dockerfile, systemd, install script), README | in this change |

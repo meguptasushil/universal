@@ -37,6 +37,9 @@ type Event struct {
 	Source       string         `json:"source"`
 	Kind         string         `json:"kind"`
 	Agent        string         `json:"agent"`
+	AgentID      string         `json:"agent_id,omitempty"` // instance of the agent (X-Agent-Id, subagent id)
+	User         string         `json:"user,omitempty"`     // user or account the agent acts for
+	KeyID        string         `json:"key_id,omitempty"`   // fingerprint of the API key used (never the key)
 	Session      string         `json:"session,omitempty"`
 	Provider     string         `json:"provider,omitempty"`
 	Model        string         `json:"model,omitempty"`

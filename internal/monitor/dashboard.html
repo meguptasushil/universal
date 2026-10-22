@@ -41,6 +41,13 @@ dialog .body{padding:16px;max-height:75vh;overflow:auto}
 pre{white-space:pre-wrap;word-break:break-word;background:var(--bg);border:1px solid var(--line);border-radius:6px;padding:10px;font:12px/1.5 ui-monospace,Menlo,monospace;margin:4px 0 14px}
 .empty{padding:28px;text-align:center;color:var(--muted)}
 code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
+.sub{font-size:11px;color:var(--muted);font-family:ui-monospace,Menlo,monospace}
+.side .row.click{cursor:pointer}.side .row.click:hover{background:var(--bg)}
+.side .row .two{display:flex;flex-direction:column;min-width:0}
+.side .row .two span{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.side .row > span:last-child{white-space:nowrap;flex-shrink:0}
+.chip{display:none;font-size:12px;border:1px solid var(--accent);color:var(--accent);border-radius:999px;padding:2px 8px;cursor:pointer}
+.warn{color:var(--err);font-size:12px;padding:6px 12px}
 </style>
 </head>
 <body>
@@ -54,6 +61,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
     <option value="session">Sessions</option><option value="custom">Custom</option>
   </select>
   <input id="f-q" placeholder="Search prompts, responses, tools…" size="28">
+  <span class="chip" id="chip" title="Clear identity filter"></span>
   <span class="live" id="live">connecting…</span>
 </header>
 <main>
@@ -74,7 +82,9 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
     </div>
   </section>
   <aside class="side">
-    <div class="card"><h2>Agents</h2><div id="s-agents"></div></div>
+    <div class="card"><h2>Agents</h2><div id="s-alerts"></div><div id="s-agents"></div></div>
+    <div class="card"><h2>Identities (ID · user · API key)</h2><div id="s-ids"></div></div>
+    <div class="card"><h2>Sessions</h2><div id="s-sessions"></div></div>
     <div class="card"><h2>Models</h2><div id="s-models"></div></div>
     <div class="card"><h2>Tools used</h2><div id="s-tools"></div></div>
   </aside>
@@ -86,7 +96,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
   var token = params.get('token') || '';
   try { if (token) localStorage.setItem('monitorToken', token); else token = localStorage.getItem('monitorToken') || ''; } catch (e) {}
   var $ = function(id){ return document.getElementById(id); };
-  var events = [], MAX = 500;
+  var events = [], MAX = 500, extra = {}; // extra: agent_id/user/session/key_id filter from side panels
   var nf = new Intl.NumberFormat();
 
   function api(path){
@@ -96,6 +106,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
   function filters(){
     var p = new URLSearchParams();
     ['agent','provider','kind','q'].forEach(function(k){ var v = $('f-'+k).value; if (v) p.set(k, v); });
+    Object.keys(extra).forEach(function(k){ if (extra[k]) p.set(k, extra[k]); });
     return p.toString();
   }
   function esc(s){ return String(s == null ? '' : s).replace(/[&<>"]/g, function(c){ return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
@@ -110,7 +121,7 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
     var t = new Date(e.time);
     var tok = (e.input_tokens||e.output_tokens) ? nf.format(e.input_tokens||0)+' / '+nf.format(e.output_tokens||0) : '';
     tr.innerHTML = '<td class="muted" title="'+esc(t.toISOString())+'">'+esc(t.toLocaleTimeString())+'</td>'+
-      '<td>'+esc(e.agent)+'</td>'+
+      '<td>'+esc(e.agent)+ids(e)+'</td>'+
       '<td><span class="pill k-'+esc(e.kind)+'">'+esc(e.kind.replace('_',' '))+'</span></td>'+
       '<td class="muted">'+esc(e.model||e.provider||'')+'</td>'+
       '<td class="sum">'+summary(e)+'</td>'+
@@ -118,6 +129,20 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
     tr.onclick = function(){ show(e); };
     return tr;
   }
+  function shortId(s, n){ s = String(s||''); n = n || 14; return s.length > n ? s.slice(0, n-5)+'…'+s.slice(-4) : s; }
+  function ids(e){
+    var parts = [];
+    if (e.agent_id) parts.push('id '+shortId(e.agent_id));
+    if (e.session) parts.push('sess '+shortId(e.session, 10));
+    if (e.key_id) parts.push('key '+e.key_id.split('#')[0]);
+    return parts.length ? '<div class="sub">'+esc(parts.join(' · '))+'</div>' : '';
+  }
+  function setExtra(f, label){
+    extra = f; var chip = $('chip');
+    chip.style.display = label ? 'inline-block' : 'none'; chip.textContent = label ? label + ' ✕' : '';
+    reload();
+  }
+  $('chip').onclick = function(){ setExtra({}, ''); };
   function render(){
     var tb = $('rows'); tb.textContent = '';
     events.forEach(function(e){ tb.appendChild(row(e)); });
@@ -125,7 +150,9 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
   }
   function show(e){
     $('d-title').textContent = e.agent + ' · ' + e.kind.replace('_',' ');
-    var h = '<p class="muted">'+esc(new Date(e.time).toString())+' · '+esc(e.source)+(e.provider?' · '+esc(e.provider):'')+(e.model?' · '+esc(e.model):'')+(e.status?' · HTTP '+e.status:'')+(e.latency_ms?' · '+e.latency_ms+' ms':'')+(e.session?' · session '+esc(e.session):'')+'</p>';
+    var h = '<p class="muted">'+esc(new Date(e.time).toString())+' · '+esc(e.source)+(e.provider?' · '+esc(e.provider):'')+(e.model?' · '+esc(e.model):'')+(e.status?' · HTTP '+e.status:'')+(e.latency_ms?' · '+e.latency_ms+' ms':'')+'</p>';
+    var idl = [['Agent ID', e.agent_id], ['User / account', e.user], ['API key', e.key_id], ['Session', e.session], ['Client IP', e.client_ip]].filter(function(x){ return x[1]; });
+    if (idl.length) h += '<p class="sub">'+idl.map(function(x){ return esc(x[0])+': '+esc(x[1]); }).join('<br>')+'</p>';
     if (e.error) h += '<h3 class="err">Error</h3><pre>'+esc(e.error)+'</pre>';
     if (e.prompt) h += '<h3>Prompt</h3><pre>'+esc(e.prompt)+'</pre>';
     (e.tool_calls||[]).forEach(function(t){ h += '<h3>Tool: <span class="tool">'+esc(t.name)+'</span></h3><pre>'+esc(t.input||'')+'</pre>'; });
@@ -145,11 +172,35 @@ code{font-family:ui-monospace,Menlo,monospace;font-size:12px}
       s.agents.forEach(function(a){ calls+=a.llm_calls; tools+=a.tool_calls; tin+=a.input_tokens; tout+=a.output_tokens; });
       $('t-events').textContent = nf.format(s.total); $('t-calls').textContent = nf.format(calls);
       $('t-tools').textContent = nf.format(tools); $('t-tokens').textContent = nf.format(tin)+' / '+nf.format(tout);
-      list($('s-agents'), s.agents, function(c){ return nf.format(c.events)+' events'; });
+      list($('s-agents'), s.agents, function(c){ return nf.format(c.events)+' events · '+c.sessions+' sess'; });
+      var alerts = s.agents.filter(function(a){ return a.keys > 1 || a.users > 1 || a.agent_ids > 1; }).map(function(a){
+        var p = []; if (a.keys > 1) p.push(a.keys+' API keys'); if (a.users > 1) p.push(a.users+' users'); if (a.agent_ids > 1) p.push(a.agent_ids+' agent IDs');
+        return '<div class="warn">⚠ '+esc(a.key)+' ran under '+esc(p.join(', '))+'</div>'; });
+      $('s-alerts').innerHTML = alerts.join('');
+      clickList($('s-ids'), (s.identities||[]).slice(0, 15), function(c){
+        var who = [c.agent_id ? 'id '+shortId(c.agent_id) : '', c.user ? shortId(c.user, 22) : '', c.key_id ? 'key '+c.key_id : ''].filter(Boolean).join(' · ') || 'no IDs reported';
+        return { title: c.agent, sub: who, right: nf.format(c.events)+' ev',
+          filter: { agent_id: c.agent_id, user: c.user, key_id: c.key_id }, label: c.agent+' · '+who, agent: c.agent };
+      });
+      clickList($('s-sessions'), (s.sessions||[]).slice(0, 15), function(c){
+        return { title: shortId(c.key, 22), sub: c.agent+(c.top_tools && c.top_tools.length ? ' · '+c.top_tools.join(', ') : ''),
+          right: new Date(c.last_seen).toLocaleTimeString(), filter: { session: c.key }, label: 'session '+shortId(c.key, 18) };
+      });
       list($('s-models'), s.models, function(c){ return nf.format(c.llm_calls)+' calls'; });
       list($('s-tools'), s.tools, function(c){ return nf.format(c.tool_calls)+'×'; });
       fillSelect('f-agent', s.agents); fillSelect('f-provider', s.providers);
     }).catch(function(err){ if (err.message === 'auth') { var t = prompt('Monitor token'); if (t) { token = t; try{localStorage.setItem('monitorToken', t);}catch(e){} reload(); } } });
+  }
+  function clickList(el, items, fn){
+    el.textContent = '';
+    if (!items.length) { el.innerHTML = '<div class="row muted">none yet</div>'; return; }
+    items.forEach(function(c){
+      var v = fn(c), d = document.createElement('div');
+      d.className = 'row click';
+      d.innerHTML = '<span class="two"><span>'+esc(v.title)+'</span><span class="sub">'+esc(v.sub)+'</span></span><span class="muted">'+esc(v.right)+'</span>';
+      d.onclick = function(){ if (v.agent) $('f-agent').value = v.agent; setExtra(v.filter, v.label); };
+      el.appendChild(d);
+    });
   }
   function fillSelect(id, items){
     var sel = $(id), cur = sel.value, have = {};

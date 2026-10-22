@@ -3,6 +3,8 @@ package monitor
 import (
 	"bytes"
 	"context"
+	"crypto/sha256"
+	"encoding/hex"
 	"errors"
 	"io"
 	"log/slog"
@@ -42,6 +44,10 @@ type callCtx struct {
 	path     string
 	method   string
 	clientIP string
+	agentID  string
+	user     string
+	session  string
+	keyID    string
 	req      reqInfo
 	done     sync.Once
 }
@@ -70,7 +76,9 @@ func (g *Gateway) newProxy(up *Upstream) *httputil.ReverseProxy {
 			out.URL.Path = strings.TrimSuffix(target.Path, "/") + cc.path
 			out.URL.RawPath = ""
 			out.Host = target.Host
-			out.Header.Del("X-Agent-Name")
+			for _, h := range agentHeaders {
+				out.Header.Del(h)
+			}
 			// let the transport negotiate gzip and decompress it for us, so the
 			// captured body is readable
 			out.Header.Del("Accept-Encoding")
@@ -116,6 +124,11 @@ func (g *Gateway) ServeProxy(w http.ResponseWriter, r *http.Request, upstream, a
 	if cc.agent == "" {
 		cc.agent = identifyAgent(r, cc.clientIP)
 	}
+	cc.agentID = r.Header.Get("X-Agent-Id")
+	cc.user = r.Header.Get("X-Agent-User")
+	cc.session = firstNonEmpty(r.Header.Get("X-Agent-Session"), r.Header.Get("X-Session-Id"),
+		r.Header.Get("Session_id"), r.Header.Get("X-Claude-Code-Session-Id"))
+	cc.keyID = keyFingerprint(r)
 	if r.Body != nil && r.ContentLength <= maxRequestCapture {
 		body, err := io.ReadAll(io.LimitReader(r.Body, maxRequestCapture+1))
 		r.Body.Close()
@@ -143,6 +156,10 @@ func (g *Gateway) finish(cc *callCtx, status int, contentType string, body []byt
 			Source:       SourceProxy,
 			Kind:         KindLLMCall,
 			Agent:        cc.agent,
+			AgentID:      cc.agentID,
+			User:         firstNonEmpty(cc.user, cc.req.User),
+			KeyID:        cc.keyID,
+			Session:      firstNonEmpty(cc.session, cc.req.Session),
 			Provider:     cc.upstream.Name,
 			Model:        firstNonEmpty(ri.Model, cc.req.Model),
 			Method:       cc.method,
@@ -215,6 +232,40 @@ func (b *recordingBody) Close() error {
 
 func (b *recordingBody) report(err error) {
 	b.once.Do(func() { b.onDone(b.buf.Bytes(), b.truncated, err) })
+}
+
+// agentHeaders are identity hints for the monitor; they are not forwarded.
+var agentHeaders = []string{"X-Agent-Name", "X-Agent-Id", "X-Agent-User", "X-Agent-Session"}
+
+// keyFingerprint identifies which API key (or OAuth token) a call used
+// without storing it: the last 4 characters, as providers display them, plus
+// a short hash so keys sharing those characters stay distinct.
+func keyFingerprint(r *http.Request) string {
+	k := ""
+	if h := r.Header.Get("Authorization"); h != "" {
+		if _, tok, ok := strings.Cut(h, " "); ok {
+			k = strings.TrimSpace(tok)
+		} else {
+			k = strings.TrimSpace(h)
+		}
+	}
+	for _, h := range []string{"X-Api-Key", "X-Goog-Api-Key", "Api-Key"} {
+		if v := r.Header.Get(h); v != "" {
+			k = v
+		}
+	}
+	if k == "" {
+		k = r.URL.Query().Get("key")
+	}
+	if k == "" {
+		return ""
+	}
+	sum := sha256.Sum256([]byte(k))
+	tag := hex.EncodeToString(sum[:4])
+	if len(k) >= 16 {
+		return "…" + k[len(k)-4:] + "#" + tag
+	}
+	return "#" + tag
 }
 
 func clientIP(r *http.Request) string {
